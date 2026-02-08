@@ -42,10 +42,30 @@ Repository = "https://github.com/barateza/mcp-plesk-unified.git"
 [tool.setuptools]
 py-modules = ["server"]
 
+[tool.black]
+line-length = 88
+target-version = ["py312", "py313"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | __pycache__
+)/
+'''
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.3.0",
+    "black>=24.0.0",
 ]
 test = [
     "pytest>=8.0.0",
