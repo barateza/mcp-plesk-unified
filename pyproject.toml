@@ -1,8 +1,25 @@
 [project]
 name = "plesk-unified"
 version = "0.1.0"
-description = "Add your description here"
+description = "A unified MCP server that indexes and retrieves Plesk documentation using vector embeddings and semantic search with reranking"
 readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Gilson Siqueira", email = "gilson@example.com"}
+]
+keywords = ["plesk", "mcp", "model-context-protocol", "semantic-search", "rag", "vector-database"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Documentation",
+    "Topic :: System :: Monitoring",
+    "Topic :: Utilities",
+]
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.14.3",
@@ -11,3 +28,9 @@ dependencies = [
     "lancedb>=0.29.1",
     "sentence-transformers>=5.2.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/barateza/mcp-plesk-unified"
+Documentation = "https://github.com/barateza/mcp-plesk-unified#readme"
+Repository = "https://github.com/barateza/mcp-plesk-unified.git"
+"Bug Tracker" = "https://github.com/barateza/mcp-plesk-unified/issues"
