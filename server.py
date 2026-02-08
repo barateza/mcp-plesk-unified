@@ -1,6 +1,5 @@
 import os
 import sys
-from typing import Callable, Optional, Tuple, Dict
 
 # --- SILENCE THE NOISE ---
 # This prevents the 14,000 "Loading weights" notifications
