@@ -6,16 +6,17 @@ import sys
 os.environ["TQDM_DISABLE"] = "1"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-from fastmcp import FastMCP
-from pathlib import Path
-from bs4 import BeautifulSoup
-import json
-import lancedb
-from git import Repo
-from lancedb.pydantic import LanceModel, Vector
-from lancedb.embeddings import get_registry
-from lancedb.rerankers import CrossEncoderReranker
-from pydantic import Field  # <--- IMPORT NECESSÁRIO PARA AS DESCRIÇÕES
+# Imports after env setup to suppress ML library verbosity
+from fastmcp import FastMCP  # noqa: E402
+from pathlib import Path  # noqa: E402
+from bs4 import BeautifulSoup  # noqa: E402
+import json  # noqa: E402
+import lancedb  # noqa: E402
+from git import Repo  # noqa: E402
+from lancedb.pydantic import LanceModel, Vector  # noqa: E402
+from lancedb.embeddings import get_registry  # noqa: E402
+from lancedb.rerankers import CrossEncoderReranker  # noqa: E402
+from pydantic import Field  # noqa: E402
 
 # Initialize
 mcp = FastMCP("plesk-unified-master")
@@ -57,7 +58,7 @@ reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
 
 class UnifiedSchema(LanceModel):
-    vector: Vector(1024) = embedding_model.VectorField()  # pyright: ignore[reportInvalidTypeForm]
+    vector: Vector(1024) = embedding_model.VectorField()  # type: ignore[valid-type]
     text: str = embedding_model.SourceField()
     title: str = ""
     filename: str = ""
