@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Callable, Optional, Tuple, Dict
 
 # --- SILENCE THE NOISE ---
 # This prevents the 14,000 "Loading weights" notifications
@@ -58,7 +59,7 @@ print("Loading Reranker (BAAI/bge-reranker-base)...", file=sys.stderr)
 reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
 class UnifiedSchema(LanceModel):
-    vector: Vector(1024) = embedding_model.VectorField()
+    vector: Vector(1024) = embedding_model.VectorField() # pyright: ignore[reportInvalidTypeForm]
     text: str = embedding_model.SourceField()
     title: str = ""
     filename: str = ""
@@ -193,15 +194,12 @@ def refresh_knowledge(
         if source["type"] == "html":
             toc_map = load_toc_map(source["path"])
             files = list(source["path"].rglob("*.htm")) + list(source["path"].rglob("*.html"))
-            parser = parse_html
             chunk_size = 3000
         elif source["type"] == "php":
             files = list(source["path"].rglob("*.php"))
-            parser = parse_code
             chunk_size = 6000
         else:
             files = list(source["path"].rglob("*.js")) + list(source["path"].rglob("*.md"))
-            parser = parse_code
             chunk_size = 5000
 
         cat_docs = []
@@ -217,9 +215,9 @@ def refresh_knowledge(
 
             meta = toc_map.get(f.name) if toc_map else None
             if source["type"] == "html":
-                title, breadcrumb, text = parser(f, meta)
+                title, breadcrumb, text = parse_html(f, meta)
             else:
-                title, breadcrumb, text = parser(f)
+                title, breadcrumb, text = parse_code(f)
 
             if text and len(text) > 50:
                 chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size - 500)]
@@ -253,9 +251,9 @@ def refresh_knowledge(
 
 @mcp.tool
 def search_plesk_unified(
-    query: str = Field(..., description="The search query (e.g. 'how to add button')"), 
-    category: str = Field(
-        None, 
+    query: str = Field(..., description="The search query (e.g. 'how to add button')"),
+    category: str | None = Field(
+        None,
         description="Filter by category: 'guide', 'cli', 'api', 'php-stubs', 'js-sdk'"
     )
 ):
