@@ -35,7 +35,7 @@ python server.py
 Server initializes on startup: downloads missing sources, builds embeddings, starts MCP server. Models auto-download (~2GB total) on first run.
 
 ### Adding New Documentation Sources
-Edit `SOURCES` list in [server.py](server.py#L31-L48). Structure:
+Edit `SOURCES` list in [server.py](server.py#L32-L50). Structure:
 ```python
 {"path": KB_DIR / "category", "cat": "category", "type": "html|php|js", "repo_url": "optional git url"}
 ```
@@ -210,7 +210,7 @@ search_plesk_unified(query="button", category="api")
 ### Memory Issues During Indexing
 - **Problem**: Indexing large sources causes OOM or slowdown
 - **Root Cause**: `BATCH_SIZE_FILES = 10` batches files, not chunks. Large files → many chunks per batch
-- **Fix**: Reduce batch size in [server.py](server.py#L220) or increase chunk overlap to consolidate chunks
+- **Fix**: Reduce batch size in [server.py](server.py#L233) or increase chunk overlap to consolidate chunks
 
 ### First-Run Model Download Fails
 - **Problem**: Server hangs or crashes during first initialization
