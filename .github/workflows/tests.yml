@@ -32,11 +32,15 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e .
+        pip install -e ".[dev]"
 
-    - name: Syntax check
+    - name: Lint with ruff
       run: |
-        python -m py_compile server.py main.py
+        ruff check server.py main.py
+
+    - name: Format check with ruff
+      run: |
+        ruff format --check server.py main.py
 
     - name: Import verification
       run: |

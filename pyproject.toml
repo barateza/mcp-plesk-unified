@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=70.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "plesk-unified"
 version = "0.1.0"
@@ -34,3 +38,15 @@ Homepage = "https://github.com/barateza/mcp-plesk-unified"
 Documentation = "https://github.com/barateza/mcp-plesk-unified#readme"
 Repository = "https://github.com/barateza/mcp-plesk-unified.git"
 "Bug Tracker" = "https://github.com/barateza/mcp-plesk-unified/issues"
+
+[tool.setuptools]
+py-modules = ["server"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.3.0",
+]
+test = [
+    "pytest>=8.0.0",
+]

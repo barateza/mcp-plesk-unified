@@ -58,35 +58,39 @@ print("Loading Reranker (BAAI/bge-reranker-base)...", file=sys.stderr)
 reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
 class UnifiedSchema(LanceModel):
-    vector: Vector(embedding_model.ndims()) = embedding_model.VectorField()
+    vector: Vector(1024) = embedding_model.VectorField()
     text: str = embedding_model.SourceField()
-    title: str
-    filename: str
-    category: str
-    breadcrumb: str
+    title: str = ""
+    filename: str = ""
+    category: str = ""
+    breadcrumb: str = ""
 
 def get_table(create_new=False):
     db = lancedb.connect(str(DB_PATH))
     try:
-        if create_new: return db.create_table("plesk_knowledge", schema=UnifiedSchema, mode="overwrite")
+        if create_new:
+            return db.create_table("plesk_knowledge", schema=UnifiedSchema, mode="overwrite")
         return db.open_table("plesk_knowledge")
-    except:
+    except Exception:
         return db.create_table("plesk_knowledge", schema=UnifiedSchema, mode="create")
 
 # --- Helper: Git Auto-Loader ---
 def ensure_source_exists(source):
-    if source["path"].exists() and any(source["path"].iterdir()): return True
+    if source["path"].exists() and any(source["path"].iterdir()):
+        return True
     if source["repo_url"]:
         print(f"[LOG] Downloading {source['cat']}...", file=sys.stderr)
         try:
             Repo.clone_from(source["repo_url"], source["path"])
             return True
-        except: return False
+        except Exception:
+            return False
     return False
 
 # --- TOC Parsing Logic ---
 def parse_toc_recursive(nodes, parent_path="", file_map=None):
-    if file_map is None: file_map = {}
+    if file_map is None:
+        file_map = {}
     for node in nodes:
         title = node.get("text", "Untitled")
         url_raw = node.get("url", "")
@@ -100,11 +104,13 @@ def parse_toc_recursive(nodes, parent_path="", file_map=None):
 
 def load_toc_map(folder_path):
     toc_path = folder_path / "toc.json"
-    if not toc_path.exists(): return {}
+    if not toc_path.exists():
+        return {}
     try:
         data = json.loads(toc_path.read_text(encoding="utf-8"))
         return parse_toc_recursive(data)
-    except: return {}
+    except Exception:
+        return {}
 
 # --- Content Parsers ---
 def parse_html(file_path, toc_metadata=None):
@@ -117,20 +123,28 @@ def parse_html(file_path, toc_metadata=None):
             title = toc_metadata.get("title", title)
             breadcrumb = toc_metadata.get("breadcrumb", "")
         elif soup.title:
-            title = soup.title.string.replace(" — Plesk Obsidian documentation", "").strip()
+            if soup.title and soup.title.string:
+                title = soup.title.string.replace(" — Plesk Obsidian documentation", "").strip()
 
         content = soup.find("div", attrs={"itemprop": "articleBody"})
-        if not content: content = soup.body
-        for tag in content(["script", "style", "nav", "footer", "iframe"]): tag.decompose()
+        if not content:
+            content = soup.body
+        if content:
+            for tag in content(["script", "style", "nav", "footer", "iframe"]):
+                tag.decompose()
 
-        clean_text = content.get_text(separator="\n", strip=True)
-        if breadcrumb: clean_text = f"Context: {breadcrumb}\n\n{clean_text}"
+        clean_text = content.get_text(separator="\n", strip=True) if content else ""
+        if breadcrumb:
+            clean_text = f"Context: {breadcrumb}\n\n{clean_text}"
         return title, breadcrumb, clean_text
-    except: return None, None, None
+    except Exception:
+        return None, None, None
 
 def parse_code(file_path):
-    try: return file_path.name, "", file_path.read_text(encoding="utf-8", errors="ignore")
-    except: return None, None, None
+    try:
+        return file_path.name, "", file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return None, None, None
 
 # --- Tools ---
 @mcp.tool
@@ -156,7 +170,7 @@ def refresh_knowledge(
         existing_files = set()
         if target_category != "all":
             try:
-                print(f"[LOG] Checking existing files...", file=sys.stderr)
+                print("[LOG] Checking existing files...", file=sys.stderr)
                 results = table.search().where(f"category='{target_category}'").limit(10000).to_list()
                 for r in results:
                     existing_files.add(r["filename"])
@@ -167,7 +181,8 @@ def refresh_knowledge(
     report = []
 
     for source in SOURCES:
-        if target_category != "all" and source["cat"] != target_category: continue
+        if target_category != "all" and source["cat"] != target_category:
+            continue
 
         print(f"[LOG] Processing {source['cat']}...", file=sys.stderr)
         if not ensure_source_exists(source):
@@ -194,24 +209,30 @@ def refresh_knowledge(
         BATCH_SIZE_FILES = 10
 
         for f in files:
-            if f.name.startswith("_") or f.name == "toc.json": continue
+            if f.name.startswith("_") or f.name == "toc.json":
+                continue
 
             if f.name in existing_files:
                 continue
 
             meta = toc_map.get(f.name) if toc_map else None
-            if source["type"] == "html": title, breadcrumb, text = parser(f, meta)
-            else: title, breadcrumb, text = parser(f)
+            if source["type"] == "html":
+                title, breadcrumb, text = parser(f, meta)
+            else:
+                title, breadcrumb, text = parser(f)
 
             if text and len(text) > 50:
                 chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size - 500)]
+                # Ensure we have valid string values
+                safe_title = title or "Untitled"
+                safe_breadcrumb = breadcrumb or ""
                 for chunk in chunks:
                     cat_docs.append({
-                        "text": f"[{source['cat'].upper()}] {title}\n---\n{chunk}",
-                        "title": title,
+                        "text": f"[{source['cat'].upper()}] {safe_title}\n---\n{chunk}",
+                        "title": safe_title,
                         "filename": f.name,
                         "category": source["cat"],
-                        "breadcrumb": breadcrumb
+                        "breadcrumb": safe_breadcrumb
                     })
 
             files_processed_count += 1
