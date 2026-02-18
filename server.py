@@ -81,7 +81,8 @@ def get_resources():
 
 def get_table(create_new=False):
     _, _, Schema = get_resources()
-    # Lazy-import lancedb to avoid heavy imports at module import time
+    # get_resources() already loaded lancedb into sys.modules, so this import
+    # is a free cache hit — no actual re-import or I/O occurs.
     import lancedb
 
     db = lancedb.connect(str(DB_PATH))
