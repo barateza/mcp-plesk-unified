@@ -5,6 +5,7 @@ import time
 import requests
 from pathlib import Path
 from pydantic import Field
+from typing import Any, cast
 
 # Lightweight import needed for MCP registration
 from fastmcp import FastMCP
@@ -44,10 +45,15 @@ SOURCES = [
 ]
 
 # --- Global Cache for Lazy Loading ---
-_GLOBALS = {"embedding_model": None, "reranker": None, "Schema": None, "lancedb": None}
+_GLOBALS: dict[str, Any] = {
+    "embedding_model": None,
+    "reranker": None,
+    "Schema": None,
+    "lancedb": None,
+}
 
 
-def get_resources():
+def get_resources() -> tuple[Any, Any, type]:
     """Lazy loads heavy AI models to prevent MCP startup timeouts."""
     if _GLOBALS["Schema"] is not None:
         return _GLOBALS["embedding_model"], _GLOBALS["reranker"], _GLOBALS["Schema"]
@@ -55,7 +61,7 @@ def get_resources():
     print("[LOG] Lazy loading AI models...", file=sys.stderr)
     # Import heavy dependencies lazily to reduce startup noise/memory
     import lancedb
-    from lancedb.pydantic import LanceModel, Vector
+    from lancedb.pydantic import LanceModel
     from lancedb.embeddings import get_registry
     from lancedb.rerankers import CrossEncoderReranker
 
@@ -64,7 +70,7 @@ def get_resources():
     reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
     class UnifiedSchema(LanceModel):
-        vector: Vector(1024) = embedding_model.VectorField()
+        vector: Any = embedding_model.VectorField()
         text: str = embedding_model.SourceField()
         title: str = ""
         filename: str = ""
@@ -426,13 +432,14 @@ def search_plesk_unified(
     3. You need to find specific error messages or configuration parameters not found in high-level summaries.
     """
     _, reranker, _ = get_resources()
+    assert reranker is not None
     table = get_table()
     search_op = table.search(query).limit(25)
     if category:
         search_op = search_op.where(f"category = '{category}'")
 
     print(f"[LOG] Reranking results for: '{query}'...", file=sys.stderr)
-    results = search_op.rerank(reranker=reranker).limit(5).to_list()
+    results = search_op.rerank(reranker=cast(Any, reranker)).limit(5).to_list()
 
     return "\n".join(
         [
