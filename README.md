@@ -54,6 +54,38 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
+### ⚠️ First-Run Warm-Up (Required)
+
+> **Do this before registering the server with any MCP client.**
+
+MCP clients (Claude Desktop, Cursor, etc.) enforce strict request timeouts (~60 seconds). On first use, the server must download two AI models totalling ~1.8 GB:
+
+| Model | Size | Purpose |
+|-------|------|---------|
+| `BAAI/bge-m3` | ~1.5 GB | Semantic embeddings |
+| `BAAI/bge-reranker-base` | ~300 MB | Cross-encoder reranking |
+
+If the server is registered before the models are cached, the first tool call will trigger the download mid-request and **will time out silently**. Run the warm-up script first:
+
+```bash
+python main.py
+```
+
+Sample output:
+```
+  mcp-plesk-unified — Model Warm-Up
+
+Downloading and caching AI models...
+This may take several minutes on the first run (~1.8 GB total).
+
+✅  Warm-up complete in 142.3s.
+
+Models are now cached. You can safely register the MCP server
+in your client configuration without risk of timeout errors.
+```
+
+Once the warm-up completes, all subsequent server starts load from the local HuggingFace cache and are nearly instantaneous.
+
 ### Initialize the Knowledge Base
 
 ```bash
@@ -63,7 +95,7 @@ python server.py
 The server will:
 1. ✅ Download Plesk documentation sources
 2. ✅ Parse HTML, PHP, and JavaScript files
-3. ✅ Generate semantic embeddings
+3. ✅ Generate semantic embeddings (using cached models)
 4. ✅ Index everything into LanceDB vector database
 5. ✅ Start the MCP server
 
@@ -94,7 +126,7 @@ Then query: "How do I add a button to the Plesk admin panel?" and receive contex
 | **Server** | FastMCP | Model Context Protocol implementation |
 | **Parser** | BeautifulSoup4 | HTML parsing for documentation |
 
-## 📦 Dependencies
+## � Dependencies
 
 - **fastmcp** (≥2.14.5): MCP server framework
 - **lancedb** (≥0.29.1): Vector database
@@ -102,7 +134,7 @@ Then query: "How do I add a button to the Plesk admin panel?" and receive contex
 - **beautifulsoup4** (≥4.14.3): HTML parsing
 - **gitpython** (≥3.1.46): Git repository management
 
-## 📚 Usage Examples
+## � Usage Examples
 
 ### Python API
 
@@ -130,6 +162,37 @@ python server.py
 
 ## 🔧 Configuration
 
+### TOC Enrichment (`enrich_toc.py`)
+
+`enrich_toc.py` uses the [OpenRouter](https://openrouter.ai/) API to auto-generate one-sentence descriptions for every file in the knowledge-base Table of Contents. Before running it, export your API key:
+
+```bash
+# macOS / Linux
+export OPENROUTER_API_KEY="sk-or-v1-..."
+
+# Windows (PowerShell)
+$env:OPENROUTER_API_KEY = "sk-or-v1-..."
+
+# Windows (Command Prompt)
+set OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+Optionally, override the knowledge-base root (defaults to `./knowledge_base`):
+
+```bash
+export KB_ROOT="/path/to/your/knowledge_base"
+```
+
+Then run:
+
+```bash
+python enrich_toc.py
+```
+
+> **Tip:** Add `OPENROUTER_API_KEY` to a `.env` file and load it with `dotenv` or your shell's `source` command — never hard-code it in source files.
+
+### Server (`server.py`)
+
 Edit `server.py` to customize:
 
 ```python
@@ -154,7 +217,7 @@ reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 ```
 plesk-unified/
 ├── server.py              # Main MCP server implementation
-├── main.py               # Entry point
+├── main.py               # Warm-up script — run once before registering with MCP clients
 ├── pyproject.toml        # Project metadata and dependencies
 ├── README.md             # This file
 ├── LICENSE               # MIT License
