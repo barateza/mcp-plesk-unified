@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import threading
 import requests
 import re
 from pathlib import Path
@@ -52,6 +53,20 @@ _GLOBALS: dict[str, Any] = {
     "Schema": None,
     "lancedb": None,
 }
+
+# Global Status Tracker for background ingestion jobs
+_JOB_STATUS = {
+    "is_running": False,
+    "last_message": "Idle",
+    "history": [],
+}
+
+
+def log_job(msg: str):
+    """Helper to update global status and print to stderr"""
+    _JOB_STATUS["last_message"] = msg
+    _JOB_STATUS["history"].append(msg)
+    print(f"[LOG] {msg}", file=sys.stderr)
 
 
 def get_resources() -> tuple[Any, Any, type]:
@@ -260,6 +275,102 @@ def chunk_php_stubs(file_path):
             
     return chunks
 
+
+def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
+    """Background worker that performs the heavy ingestion work.
+
+    Updates `_JOB_STATUS` so callers can poll progress.
+    """
+    global _JOB_STATUS
+    _JOB_STATUS["is_running"] = True
+    _JOB_STATUS["history"] = []
+
+    try:
+        log_job("Starting resource loading...")
+        get_resources()
+
+        log_job("Opening database...")
+        table = get_table(create_new=reset_db)
+
+        total_chunks = 0
+
+        for source in SOURCES:
+            if target_category != "all" and source["cat"] != target_category:
+                continue
+
+            log_job(f"Processing source: {source['cat']}...")
+            if not ensure_source_exists(source):
+                log_job(f"FAILED: {source['cat']} (Source missing)")
+                continue
+
+            if source["cat"] in ["php-stubs", "js-sdk"]:
+                generate_and_enrich_toc(source["path"], source["cat"], enrich_ai=enrich_ai)
+
+            # 1. IDENTIFY FILES
+            files = []
+            if source["type"] == "html":
+                files = list(source["path"].rglob("*.htm*"))
+                chunk_size = 3000
+            elif source["type"] == "php":
+                files = list(source["path"].rglob("*.php"))
+            else:
+                files = list(source["path"].rglob("*.js")) + list(source["path"].rglob("*.md"))
+                chunk_size = 5000
+
+            # 2. PROCESS FILES
+            cat_docs = []
+            for f in files:
+                if f.name.startswith("_") or f.name.endswith(".json"):
+                    continue
+
+                try:
+                    # === BRANCH A: CUSTOM PHP CHUNKING ===
+                    if source["type"] == "php":
+                        php_chunks = chunk_php_stubs(f)
+                        for c in php_chunks:
+                            cat_docs.append({
+                                "text": c["text"],
+                                "title": c["title"],
+                                "filename": f.name,
+                                "category": source["cat"],
+                                "breadcrumb": c["breadcrumb"],
+                            })
+                        continue
+
+                    # === BRANCH B: STANDARD TEXT CHUNKING ===
+                    if source["type"] == "html":
+                        title, breadcrumb, text = parse_html(f)
+                    else:
+                        title, breadcrumb, text = parse_code(f)
+
+                    if text and len(text) > 50:
+                        chunks = [
+                            text[i : i + chunk_size] for i in range(0, len(text), chunk_size - 500)
+                        ]
+                        for chunk in chunks:
+                            cat_docs.append({
+                                "text": f"[{source['cat'].upper()}] {title}\n---\n{chunk}",
+                                "title": title or "Untitled",
+                                "filename": f.name,
+                                "category": source["cat"],
+                                "breadcrumb": breadcrumb or "",
+                            })
+                except Exception as e:
+                    print(f"[WARN] Failed to parse {f.name}: {e}", file=sys.stderr)
+
+            if cat_docs:
+                log_job(f"Inserting {len(cat_docs)} chunks for {source['cat']}...")
+                table.add(cat_docs)
+                total_chunks += len(cat_docs)
+                log_job(f"SUCCESS: {source['cat']} complete.")
+
+        log_job(f"Ingestion finished. Added {total_chunks} total chunks.")
+
+    except Exception as e:
+        log_job(f"CRITICAL ERROR: {str(e)}")
+    finally:
+        _JOB_STATUS["is_running"] = False
+
 # --- MCP Resources ---
 
 @mcp.resource("plesk://docs/{category}/toc")
@@ -337,83 +448,26 @@ def refresh_knowledge(
     target_category: str = Field("all", description="Target category."),
     reset_db: bool = Field(False, description="Reset index."),
     enrich_ai: bool = Field(True, description="Use AI descriptions."),
-):
-    """Synchronizes the local Knowledge Base with official Plesk GitHub repositories."""
-    get_resources()
-    table = get_table(create_new=reset_db)
-    report = []
+) -> str:
+    """Starts the knowledge ingestion process in the background."""
+    if _JOB_STATUS["is_running"]:
+        return "ERROR: An ingestion job is already running. Please wait for it to finish."
 
-    for source in SOURCES:
-        if target_category != "all" and source["cat"] != target_category:
-            continue
+    # Start the worker in a separate thread
+    t = threading.Thread(
+        target=_worker_ingest, args=(target_category, reset_db, enrich_ai), daemon=True
+    )
+    t.start()
 
-        print(f"[LOG] Processing {source['cat']}...", file=sys.stderr)
-        if not ensure_source_exists(source):
-            report.append(f"FAILED: {source['cat']}")
-            continue
+    return "Ingestion started in background. Use 'check_ingestion_status' to monitor progress."
 
-        if source["cat"] in ["php-stubs", "js-sdk"]:
-            generate_and_enrich_toc(source["path"], source["cat"], enrich_ai=enrich_ai)
 
-        # 1. IDENTIFY FILES
-        files = []
-        if source["type"] == "html":
-            files = list(source["path"].rglob("*.htm*"))
-            chunk_size = 3000
-        elif source["type"] == "php":
-            files = list(source["path"].rglob("*.php"))
-            # Note: chunk_size is not used for PHP custom chunker
-        else:
-            files = list(source["path"].rglob("*.js")) + list(source["path"].rglob("*.md"))
-            chunk_size = 5000
-
-        # 2. PROCESS FILES
-        cat_docs = []
-        for f in files:
-            if f.name.startswith("_") or f.name.endswith(".json"):
-                continue
-
-            # === BRANCH A: CUSTOM PHP CHUNKING ===
-            if source["type"] == "php":
-                php_chunks = chunk_php_stubs(f)
-                for c in php_chunks:
-                    cat_docs.append({
-                        "text": c['text'],
-                        "title": c['title'],
-                        "filename": f.name,
-                        "category": source["cat"],
-                        "breadcrumb": c['breadcrumb']
-                    })
-                # Skip standard processing for PHP
-                continue
-
-            # === BRANCH B: STANDARD TEXT CHUNKING (HTML/JS) ===
-            if source["type"] == "html":
-                title, breadcrumb, text = parse_html(f)
-            else:
-                title, breadcrumb, text = parse_code(f)
-
-            if text and len(text) > 50:
-                chunks = [
-                    text[i : i + chunk_size]
-                    for i in range(0, len(text), chunk_size - 500)
-                ]
-                for chunk in chunks:
-                    cat_docs.append(
-                        {
-                            "text": f"[{source['cat'].upper()}] {title}\n---\n{chunk}",
-                            "title": title or "Untitled",
-                            "filename": f.name,
-                            "category": source["cat"],
-                            "breadcrumb": breadcrumb or "",
-                        }
-                    )
-
-        if cat_docs:
-            table.add(cat_docs)
-            report.append(f"SUCCESS: {source['cat']} ({len(cat_docs)} chunks)")
-
-    return "\n".join(report)
+@mcp.tool
+def check_ingestion_status() -> str:
+    """Checks the status of the background ingestion job."""
+    status_str = "RUNNING" if _JOB_STATUS["is_running"] else "IDLE"
+    history = "\n".join([f"- {h}" for h in _JOB_STATUS["history"][-5:]])
+    return f"Status: {status_str}\nLast Message: {_JOB_STATUS['last_message']}\n\nRecent Log:\n{history}"
 
 
 @mcp.tool
