@@ -61,7 +61,8 @@ def get_resources() -> tuple[Any, Any, type]:
 
     print("[LOG] Lazy loading AI models...", file=sys.stderr)
     import lancedb
-    from lancedb.pydantic import LanceModel
+    # [FIX 1] Import Vector here
+    from lancedb.pydantic import LanceModel, Vector
     from lancedb.embeddings import get_registry
     from lancedb.rerankers import CrossEncoderReranker
 
@@ -70,7 +71,8 @@ def get_resources() -> tuple[Any, Any, type]:
     reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
     class UnifiedSchema(LanceModel):
-        vector: Any = embedding_model.VectorField()
+        # BGE-M3 uses 1024 dimensions. This tells Arrow exactly how to store the data.
+        vector: Vector(1024) = embedding_model.VectorField() # type: ignore
         text: str = embedding_model.SourceField()
         title: str = ""
         filename: str = ""
