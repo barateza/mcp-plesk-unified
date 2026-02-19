@@ -22,11 +22,64 @@ This script automatically detects your platform and configures optimal settings:
 
 import sys
 import time
+import json
+import os
+from pathlib import Path
+import argparse
 
+def generate_mcp_config(mask_sensitive: bool = True):
+    """Generates the JSON config for Claude Desktop/Cursor.
+
+    If `mask_sensitive` is True (default) the API key value is replaced with
+    a redaction token to avoid printing secrets to stdout/logs.
+    """
+    # Get the absolute path to the python interpreter in the venv
+    python_path = sys.executable
+    
+    # Get the absolute path to server.py
+    # Assuming server.py is in the same directory as main.py
+    script_dir = Path(__file__).parent.resolve()
+    server_script = script_dir / "server.py"
+
+    # Try to get the key from the current environment. Do NOT include the
+    # real secret in the returned JSON unless `mask_sensitive` is False.
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+
+    # Use an explicit redaction token by default. Only include the real value
+    # when the caller explicitly requests unmasked output.
+    env_value = api_key if (not mask_sensitive and api_key) else "<REDACTED>"
+
+    config = {
+        "mcpServers": {
+            "plesk-unified": {
+                "command": python_path,
+                "args": [str(server_script)],
+                "env": {
+                    "OPENROUTER_API_KEY": env_value
+                }
+            }
+        }
+    }
+
+    return json.dumps(config, indent=4)
 
 def main():
+    parser = argparse.ArgumentParser(description="Warm-up models and generate MCP config")
+    parser.add_argument("--show-secret", action="store_true",
+                        help="Print full config including any API key (unsafe)")
+    parser.add_argument("--dangerous-yes-i-know", action="store_true",
+                        help="Explicit confirmation required to print secrets."
+                             " Must be used together with --show-secret.")
+    args = parser.parse_args()
+
+    if args.show_secret and not args.dangerous_yes_i_know:
+        print("\nERROR: --show-secret is dangerous. To proceed, pass:\n"
+              "  python main.py --show-secret --dangerous-yes-i-know\n",
+              file=sys.stderr)
+        sys.exit(2)
+
     print("=" * 60)
-    print("  mcp-plesk-unified — Model Warm-Up")
+    print("  mcp-plesk-unified — Model Warm-Up & Config Generator")
     print("=" * 60)
     print()
 
@@ -57,15 +110,23 @@ def main():
 
     start = time.time()
     try:
-        # Import get_resources from the server module to trigger the exact same
-        # loading path that tools will use at runtime.
+        # Import get_resources to trigger the download/cache
+        # This assumes server.py is in the same folder and valid
         from server import get_resources
-
         get_resources()
 
         elapsed = time.time() - start
+        print(f"✅  Models ready ({elapsed:.1f}s).")
+        print("-" * 60)
         print()
-        print(f"✅  Warm-up complete in {elapsed:.1f}s.")
+        print("Step 2: Configuration")
+        print("Copy the JSON below into your MCP Client configuration file:")
+        print("  • Claude Desktop: %APPDATA%\\Claude\\claude_desktop_config.json")
+        print("  • Cursor: Features > MCP > Add New MCP Server")
+        print()
+        print("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
+        print(generate_mcp_config(mask_sensitive=not args.show_secret))
+        print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print()
         print("Models are now cached. You can safely register the MCP server")
         print("in your client configuration without risk of timeout errors.")
@@ -79,14 +140,8 @@ def main():
         except ImportError:
             pass
     except Exception as exc:
-        elapsed = time.time() - start
-        print(f"\n❌  Warm-up failed after {elapsed:.1f}s: {exc}", file=sys.stderr)
-        print(
-            "\nEnsure you have an active internet connection and ~2 GB of free disk space.",
-            file=sys.stderr,
-        )
+        print(f"\n❌ Warm-up failed: {exc}", file=sys.stderr)
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
