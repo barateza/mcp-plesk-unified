@@ -6,6 +6,8 @@ import threading
 import traceback
 import requests
 import re
+# [ADD] Import torch to check for CUDA
+import torch
 from pathlib import Path
 from pydantic import Field
 from typing import Any, cast
@@ -118,10 +120,22 @@ def get_resources() -> tuple[Any, Any, type]:
     try:
         log_job("Importing LanceDB and model registry...")
         import lancedb
-        # [FIX 1] Import Vector here
         from lancedb.pydantic import LanceModel, Vector
         from lancedb.embeddings import get_registry
         from lancedb.rerankers import CrossEncoderReranker
+
+        # [MODIFIED] Device Detection Logic
+        device_name = "cpu"
+        if torch.cuda.is_available():
+            device_name = "cuda"
+            gpu_name = torch.cuda.get_device_name(0)
+            log_job(f"⚡ CUDA DETECTED: Using {gpu_name}")
+        elif torch.backends.mps.is_available():
+            # Support for your M2 Mac
+            device_name = "mps" 
+            log_job("🍎 MPS DETECTED: Using Apple Silicon Acceleration")
+        else:
+            log_job("🐢 NO GPU DETECTED: Running on CPU")
 
         registry = get_registry()
 
@@ -129,8 +143,12 @@ def get_resources() -> tuple[Any, Any, type]:
         start_status_heartbeat("Downloading/Loading 'BAAI/bge-m3' (Approx 2GB)... Please wait.")
         log_job("Downloading/Loading 'BAAI/bge-m3' (Approx 2GB)...")
         try:
-            embedding_model = registry.get("huggingface").create(name="BAAI/bge-m3")
-            log_job("Embedding model loaded: BAAI/bge-m3")
+            # [MODIFIED] Explicitly pass the device to the model creator
+            embedding_model = registry.get("huggingface").create(
+                name="BAAI/bge-m3",
+                device=device_name
+            )
+            log_job(f"Embedding model loaded: BAAI/bge-m3 on {device_name.upper()}")
         except Exception as e:
             log_job(f"Failed to load embedding model: {e}")
             log_job(traceback.format_exc())
@@ -141,8 +159,12 @@ def get_resources() -> tuple[Any, Any, type]:
         # Reranker may also download weights; log around it
         start_status_heartbeat("Loading reranker 'BAAI/bge-reranker-base'...")
         try:
-            reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
-            log_job("Reranker loaded: BAAI/bge-reranker-base")
+            # [MODIFIED] Pass device to reranker if supported, otherwise it usually auto-detects
+            reranker = CrossEncoderReranker(
+                model_name="BAAI/bge-reranker-base", 
+                device=device_name
+            )
+            log_job(f"Reranker loaded: BAAI/bge-reranker-base on {device_name.upper()}")
         except Exception as e:
             log_job(f"Failed to load reranker: {e}")
             log_job(traceback.format_exc())
