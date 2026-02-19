@@ -14,16 +14,20 @@ from typing import Any, cast
 # Lightweight import needed for MCP registration
 from fastmcp import FastMCP
 
-# --- SILENCE THE NOISE ---
-os.environ["TQDM_DISABLE"] = "1"
+# --- CONFIGURATION & TUNING ---
+# Allow toggling progress bars via ENV. Default to True for better UX.
+SHOW_PROGRESS = os.environ.get("MODEL_DOWNLOAD_SHOW_PROGRESS", "1") == "1"
+
+# Silence standard library noise, but keep critical errors
+os.environ["TQDM_DISABLE"] = "1" if not SHOW_PROGRESS else "0"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-# --- Configuration ---
+# --- PATHS ---
 BASE_DIR = Path(__file__).parent
 KB_DIR = BASE_DIR / "knowledge_base"
 DB_PATH = BASE_DIR / "storage" / "lancedb"
 
-# [NEW] Force a local cache directory so models persist reliably
+# Force a local cache directory so models persist reliably
 MODEL_CACHE_DIR = BASE_DIR / "storage" / "model_cache"
 MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
@@ -55,7 +59,7 @@ SOURCES = [
     },
 ]
 
-# --- Global Cache for Lazy Loading ---
+# --- Global Cache ---
 _GLOBALS: dict[str, Any] = {
     "embedding_model": None,
     "reranker": None,
@@ -63,7 +67,7 @@ _GLOBALS: dict[str, Any] = {
     "lancedb": None,
 }
 
-# Global Status Tracker for background ingestion jobs
+# Global Status Tracker
 _JOB_STATUS = {
     "is_running": False,
     "last_message": "Idle",
@@ -85,18 +89,26 @@ def _heartbeat_loop(stop_event: threading.Event, message: str, interval: int = 5
     start = time.time()
     while not stop_event.is_set():
         elapsed = int(time.time() - start)
-        heartbeat_msg = f"{message} Elapsed: {elapsed}s"
-        # Keep history bounded to avoid unlimited growth
-        _JOB_STATUS["last_message"] = heartbeat_msg
-        _JOB_STATUS["history"].append(heartbeat_msg)
-        print(f"[LOG] {heartbeat_msg}", file=sys.stderr)
-        stop_event.wait(interval)
+        # If a download is running, the message is dynamic (updated by the downloader)
+        # otherwise we use the static message passed in.
+        current_msg = _JOB_STATUS["last_message"] if "Downloading" in _JOB_STATUS["last_message"] else message
+        
+        heartbeat_msg = f"{current_msg} (Elapsed: {elapsed}s)"
+        
+        # Only log to stderr periodically to avoid spamming the console, 
+        # but update internal status frequently
+        if elapsed % interval == 0:
+            print(f"[LOG] {heartbeat_msg}", file=sys.stderr)
+            
+        stop_event.wait(1) 
 
 
 def start_status_heartbeat(message: str, interval: int = 5):
-    """Start a background heartbeat that updates `_JOB_STATUS` periodically."""
+    """Start a background heartbeat."""
     if _HEARTBEAT.get("thread") and _HEARTBEAT["thread"].is_alive():
-        return
+        stop_status_heartbeat()
+        
+    _JOB_STATUS["last_message"] = message
     ev = threading.Event()
     t = threading.Thread(target=_heartbeat_loop, args=(ev, message, interval), daemon=True)
     _HEARTBEAT["thread"] = t
@@ -113,8 +125,49 @@ def stop_status_heartbeat():
         ev.set()
     _HEARTBEAT["thread"] = None
     _HEARTBEAT["event"] = None
-    _HEARTBEAT["message"] = None
-    _HEARTBEAT["start"] = None
+
+
+# --- FAST DOWNLOADER WITH PROGRESS ---
+def fast_download_model(repo_id: str):
+    """
+    Downloads model using huggingface_hub snapshot_download with parallelism.
+    Hooks into the _JOB_STATUS to show real-time percentage.
+    """
+    from huggingface_hub import snapshot_download
+    from tqdm import tqdm
+
+    log_job(f"Initiating fast download for: {repo_id}")
+
+    # Custom TQDM to intercept progress and update our heartbeat
+    class FastDownloadTqdm(tqdm):
+        def update(self, n=1):
+            super().update(n)
+            # Calculate percentage if total is known
+            if self.total:
+                percent = (self.n / self.total) * 100
+                # Update the global status message directly
+                msg = f"Downloading {repo_id}: {percent:.1f}% ({self.n / 1024 / 1024:.1f}MB / {self.total / 1024 / 1024:.1f}MB)"
+                _JOB_STATUS["last_message"] = msg
+
+    try:
+        # We patch tqdm.auto.tqdm so snapshot_download uses our custom class
+        # This allows us to use max_workers (parallelism) while capturing progress
+        original_tqdm = tqdm
+        import tqdm.auto
+        tqdm.auto.tqdm = FastDownloadTqdm
+
+        snapshot_download(
+            repo_id=repo_id,
+            cache_dir=MODEL_CACHE_DIR,
+            library_name="sentence-transformers",
+            max_workers=4,  # Parallel download for speed
+            tqdm_class=FastDownloadTqdm
+        )
+    except Exception as e:
+        log_job(f"Download warning for {repo_id}: {e}")
+    finally:
+        # Restore original tqdm to avoid side effects
+        tqdm.auto.tqdm = original_tqdm
 
 
 def get_resources() -> tuple[Any, Any, type]:
@@ -129,8 +182,8 @@ def get_resources() -> tuple[Any, Any, type]:
         from lancedb.pydantic import LanceModel, Vector
         from lancedb.embeddings import get_registry
         from lancedb.rerankers import CrossEncoderReranker
-
-        # Detect Hardware Acceleration
+        
+        # Detect Hardware
         device_name = "cpu"
         if torch.cuda.is_available():
             device_name = "cuda"
@@ -144,45 +197,53 @@ def get_resources() -> tuple[Any, Any, type]:
 
         registry = get_registry()
 
-        # Check if cache exists to give better status messages
-        has_cache = any(MODEL_CACHE_DIR.iterdir()) if MODEL_CACHE_DIR.exists() else False
-        msg = "Loading AI Models from local cache..." if has_cache else "DOWNLOADING AI Models (First Run - approx 2GB)..."
+        # --- PRE-CHECK / FAST DOWNLOAD ---
+        # We explicitly download before loading to ensure we can show progress
+        # and use parallel downloading (which lancedb's internal loader might not do efficiently).
         
-        start_status_heartbeat(f"{msg} Please wait.")
-        log_job(msg)
+        embedding_model_name = "BAAI/bge-m3"
+        reranker_model_name = "BAAI/bge-reranker-base"
+
+        start_status_heartbeat("Checking model cache...")
         
+        # Check if we need to download (simple check: if cache dir has content)
+        # Note: snapshot_download is smart; if files exist it verifies quickly.
+        if SHOW_PROGRESS:
+             fast_download_model(embedding_model_name)
+             fast_download_model(reranker_model_name)
+
+        stop_status_heartbeat()
+
+        # --- LOADING ---
+        start_status_heartbeat("Loading Embedding Model into Memory...")
         try:
-            # Pass 'device' explicitly
             embedding_model = registry.get("huggingface").create(
-                name="BAAI/bge-m3",
-                device=device_name
+                name=embedding_model_name,
+                device=device_name,
+                # Force it to use our cache where we just downloaded files
+                # Some versions of lancedb/registry might need explicit cache path in kwargs
             )
-            log_job(f"Embedding model loaded: BAAI/bge-m3 on {device_name.upper()}")
+            log_job(f"Embedding model loaded: {embedding_model_name} on {device_name.upper()}")
         except Exception as e:
             log_job(f"Failed to load embedding model: {e}")
-            log_job(traceback.format_exc())
             raise
-        finally:
-            stop_status_heartbeat()
 
-        # Reranker may also download weights; log around it
-        start_status_heartbeat("Loading reranker 'BAAI/bge-reranker-base'...")
+        stop_status_heartbeat()
+        start_status_heartbeat("Loading Reranker into Memory...")
+
         try:
-            # Pass 'device' explicitly
             reranker = CrossEncoderReranker(
-                model_name="BAAI/bge-reranker-base",
+                model_name=reranker_model_name,
                 device=device_name
             )
-            log_job(f"Reranker loaded: BAAI/bge-reranker-base on {device_name.upper()}")
+            log_job(f"Reranker loaded: {reranker_model_name} on {device_name.upper()}")
         except Exception as e:
             log_job(f"Failed to load reranker: {e}")
-            log_job(traceback.format_exc())
             raise
         finally:
             stop_status_heartbeat()
 
         class UnifiedSchema(LanceModel):
-            # BGE-M3 uses 1024 dimensions. This tells Arrow exactly how to store the data.
             vector: Vector(1024) = embedding_model.VectorField()  # type: ignore
             text: str = embedding_model.SourceField()
             title: str = ""
@@ -199,6 +260,7 @@ def get_resources() -> tuple[Any, Any, type]:
         return embedding_model, reranker, UnifiedSchema
     except Exception:
         log_job("CRITICAL: get_resources failed.")
+        log_job(traceback.format_exc())
         raise
 
 
@@ -219,7 +281,7 @@ def get_table(create_new=False):
         return db.create_table("plesk_knowledge", schema=Schema, mode="create")
 
 
-# --- AI Enrichment ---
+# --- AI Enrichment (No Changes) ---
 def get_ai_description(file_path, file_name):
     """Summarizes file with a 3-tier fallback chain."""
     models = [
@@ -267,7 +329,7 @@ def get_ai_description(file_path, file_name):
     return "No description available (All AI fallbacks failed)."
 
 
-# --- Helper: Git & TOC Logic ---
+# --- Helper: Git & TOC Logic (No Changes) ---
 def ensure_source_exists(source):
     if source["path"].exists() and any(source["path"].iterdir()):
         return True
@@ -275,7 +337,6 @@ def ensure_source_exists(source):
         log_job(f"Downloading {source['cat']}...")
         try:
             from git import Repo
-            # Use a short heartbeat while cloning to keep status visible
             start_status_heartbeat(f"Cloning {source['cat']} from {source['repo_url']}...")
             try:
                 Repo.clone_from(source["repo_url"], source["path"])
@@ -330,9 +391,6 @@ def generate_and_enrich_toc(source_path, category_name, enrich_ai=True):
 
 
 def chunk_php_stubs(file_path):
-    """
-    Intelligently splits PHP Stubs/Classes into semantic chunks.
-    """
     content = file_path.read_text(encoding="utf-8", errors="ignore")
     lines = content.split('\n')
 
@@ -387,10 +445,6 @@ def chunk_php_stubs(file_path):
 
 
 def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
-    """Background worker that performs the heavy ingestion work.
-
-    Updates `_JOB_STATUS` so callers can poll progress.
-    """
     global _JOB_STATUS
     _JOB_STATUS["is_running"] = True
     _JOB_STATUS["history"] = []
@@ -443,7 +497,6 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
                     log_job(f"Processed {processed_files} files for {source['cat']}...")
 
                 try:
-                    # === BRANCH A: CUSTOM PHP CHUNKING ===
                     if source["type"] == "php":
                         php_chunks = chunk_php_stubs(f)
                         for c in php_chunks:
@@ -456,7 +509,6 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
                             })
                         continue
 
-                    # === BRANCH B: STANDARD TEXT CHUNKING ===
                     if source["type"] == "html":
                         title, breadcrumb, text = parse_html(f)
                     else:
@@ -480,7 +532,6 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
 
             if cat_docs:
                 log_job(f"Inserting {len(cat_docs)} chunks for {source['cat']}...")
-                # Batch inserts to avoid long blocking calls
                 BATCH_SIZE = 500
                 for i in range(0, len(cat_docs), BATCH_SIZE):
                     batch = cat_docs[i : i + BATCH_SIZE]
@@ -491,7 +542,6 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
                         table.add(batch)
                     except Exception as e:
                         log_job(f"[ERR] Failed to insert batch {batch_num} for {source['cat']}: {e}")
-                        log_job(traceback.format_exc())
                     else:
                         log_job(f"Batch {batch_num}/{total_batches} inserted.")
                     total_chunks += len(batch)
@@ -589,7 +639,6 @@ def refresh_knowledge(
     if _JOB_STATUS["is_running"]:
         return "ERROR: An ingestion job is already running. Please wait for it to finish."
 
-    # Start the worker in a separate thread
     t = threading.Thread(
         target=_worker_ingest, args=(target_category, reset_db, enrich_ai), daemon=True
     )
