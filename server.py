@@ -6,7 +6,6 @@ import threading
 import traceback
 import requests
 import re
-# [ADD] Import torch to check for CUDA
 import torch
 from pathlib import Path
 from pydantic import Field
@@ -19,17 +18,24 @@ from fastmcp import FastMCP
 os.environ["TQDM_DISABLE"] = "1"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-# Initialize MCP
-mcp = FastMCP("plesk-unified-master")
-
 # --- Configuration ---
 BASE_DIR = Path(__file__).parent
 KB_DIR = BASE_DIR / "knowledge_base"
 DB_PATH = BASE_DIR / "storage" / "lancedb"
+
+# [NEW] Force a local cache directory so models persist reliably
+MODEL_CACHE_DIR = BASE_DIR / "storage" / "model_cache"
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODEL_CACHE_DIR)
+
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 KB_DIR.mkdir(exist_ok=True, parents=True)
 (BASE_DIR / "storage").mkdir(exist_ok=True, parents=True)
+
+# Initialize MCP
+mcp = FastMCP("plesk-unified-master")
 
 SOURCES = [
     {"path": KB_DIR / "guide", "cat": "guide", "type": "html", "repo_url": None},
@@ -124,26 +130,29 @@ def get_resources() -> tuple[Any, Any, type]:
         from lancedb.embeddings import get_registry
         from lancedb.rerankers import CrossEncoderReranker
 
-        # [MODIFIED] Device Detection Logic
+        # Detect Hardware Acceleration
         device_name = "cpu"
         if torch.cuda.is_available():
             device_name = "cuda"
             gpu_name = torch.cuda.get_device_name(0)
             log_job(f"⚡ CUDA DETECTED: Using {gpu_name}")
         elif torch.backends.mps.is_available():
-            # Support for your M2 Mac
-            device_name = "mps" 
+            device_name = "mps"
             log_job("🍎 MPS DETECTED: Using Apple Silicon Acceleration")
         else:
             log_job("🐢 NO GPU DETECTED: Running on CPU")
 
         registry = get_registry()
 
-        # Start heartbeat for the large model download/initialization
-        start_status_heartbeat("Downloading/Loading 'BAAI/bge-m3' (Approx 2GB)... Please wait.")
-        log_job("Downloading/Loading 'BAAI/bge-m3' (Approx 2GB)...")
+        # Check if cache exists to give better status messages
+        has_cache = any(MODEL_CACHE_DIR.iterdir()) if MODEL_CACHE_DIR.exists() else False
+        msg = "Loading AI Models from local cache..." if has_cache else "DOWNLOADING AI Models (First Run - approx 2GB)..."
+        
+        start_status_heartbeat(f"{msg} Please wait.")
+        log_job(msg)
+        
         try:
-            # [MODIFIED] Explicitly pass the device to the model creator
+            # Pass 'device' explicitly
             embedding_model = registry.get("huggingface").create(
                 name="BAAI/bge-m3",
                 device=device_name
@@ -159,9 +168,9 @@ def get_resources() -> tuple[Any, Any, type]:
         # Reranker may also download weights; log around it
         start_status_heartbeat("Loading reranker 'BAAI/bge-reranker-base'...")
         try:
-            # [MODIFIED] Pass device to reranker if supported, otherwise it usually auto-detects
+            # Pass 'device' explicitly
             reranker = CrossEncoderReranker(
-                model_name="BAAI/bge-reranker-base", 
+                model_name="BAAI/bge-reranker-base",
                 device=device_name
             )
             log_job(f"Reranker loaded: BAAI/bge-reranker-base on {device_name.upper()}")
@@ -357,13 +366,13 @@ def chunk_php_stubs(file_path):
                 "text": full_text,
                 "breadcrumb": f"PHP > {current_class}"
             })
-            docblock_buffer = [] 
+            docblock_buffer = []
             continue
 
         method_match = method_pattern.search(line)
         if method_match:
             method_name = method_match.group(1)
-            full_text = f"// Class: {current_class}\n" 
+            full_text = f"// Class: {current_class}\n"
             full_text += "\n".join(docblock_buffer) + "\n" + line
 
             chunks.append({
@@ -371,9 +380,9 @@ def chunk_php_stubs(file_path):
                 "text": full_text,
                 "breadcrumb": f"PHP > {current_class} > {method_name}"
             })
-            docblock_buffer = [] 
+            docblock_buffer = []
             continue
-            
+
     return chunks
 
 
