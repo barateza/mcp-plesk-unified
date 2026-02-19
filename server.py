@@ -14,9 +14,12 @@ from typing import Any, cast
 # Lightweight import needed for MCP registration
 from fastmcp import FastMCP
 
-# --- CONFIGURATION & TUNING ---
-# Allow toggling progress bars via ENV. Default to True for better UX.
-SHOW_PROGRESS = os.environ.get("MODEL_DOWNLOAD_SHOW_PROGRESS", "1") == "1"
+# Platform detection utilities
+from platform_utils import get_device_config, print_platform_info
+
+# --- SILENCE THE NOISE ---
+os.environ["TQDM_DISABLE"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
 # --- CRITICAL FIX: FORCE OFFLINE MODE ---
 # We already downloaded the models. Do not let library try to ping HF for updates.
@@ -171,48 +174,25 @@ def get_resources() -> tuple[Any, Any, type]:
     if _GLOBALS["Schema"] is not None:
         return _GLOBALS["embedding_model"], _GLOBALS["reranker"], _GLOBALS["Schema"]
 
-    log_job("Lazy loading AI models... (get_resources)")
-    try:
-        log_job("Importing LanceDB and model registry...")
-        import lancedb
-        from lancedb.pydantic import LanceModel, Vector
-        from lancedb.embeddings import get_registry
-        from lancedb.rerankers import CrossEncoderReranker
-        
-        # Detect Hardware
-        device_name = "cpu"
-        if torch.cuda.is_available():
-            device_name = "cuda"
-            gpu_name = torch.cuda.get_device_name(0)
-            log_job(f"⚡ CUDA DETECTED: Using {gpu_name}")
-        elif torch.backends.mps.is_available():
-            device_name = "mps"
-            log_job("🍎 MPS DETECTED: Using Apple Silicon Acceleration")
-        else:
-            log_job("🐢 NO GPU DETECTED: Running on CPU")
+    # Print platform info and get device configuration
+    print_platform_info()
+    device_config = get_device_config()
+    device = device_config.get("device", "cpu")
 
-        # --- LOADING ---
-        embedding_model_name = "BAAI/bge-m3"
-        reranker_model_name = "BAAI/bge-reranker-base"
+    print(f"[LOG] Lazy loading AI models on device: {device}...", file=sys.stderr)
+    # Import heavy dependencies lazily to reduce startup noise/memory
+    import lancedb
+    from lancedb.pydantic import LanceModel
+    from lancedb.embeddings import get_registry
+    from lancedb.rerankers import CrossEncoderReranker
 
-        start_status_heartbeat("Loading Embedding Model into Memory...")
-        
-# DEBUG: Verify model cache health before loading
-        embedding_model_path = MODEL_CACHE_DIR / "models--BAAI--bge-m3"
-        reranker_model_path = MODEL_CACHE_DIR / "models--BAAI--bge-reranker-base"
-        
-        # Check if both models exist and contain files
-        if not (embedding_model_path.exists() and any(embedding_model_path.iterdir())):
-            log_job(f"Embedding model cache issue: {embedding_model_path} missing or empty. Triggering download.")
-            stop_status_heartbeat()
-            fast_download_model(embedding_model_name)
-            start_status_heartbeat("Resuming load from local cache...")
-            
-        if not (reranker_model_path.exists() and any(reranker_model_path.iterdir())):
-            log_job(f"Reranker model cache issue: {reranker_model_path} missing or empty. Triggering download.")
-            stop_status_heartbeat()
-            fast_download_model(reranker_model_name)
-            start_status_heartbeat("Resuming load from local cache...")
+    registry = get_registry()
+    # Create embedding model with platform-optimized device
+    embedding_model = registry.get("huggingface").create(
+        name="BAAI/bge-m3", device=device
+    )
+    # Create reranker with same device configuration
+    reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base", device=device)
 
         try:
 log_job(f"DEBUG: Initializing registry for {embedding_model_name}...")
