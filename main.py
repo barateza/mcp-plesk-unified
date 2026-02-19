@@ -34,26 +34,27 @@ def generate_mcp_config(mask_sensitive: bool = True):
     script_dir = Path(__file__).parent.resolve()
     server_script = script_dir / "server.py"
 
-    # Try to get the key from the current environment, else use placeholder
-    api_key = os.environ.get("OPENROUTER_API_KEY", "YOUR_KEY_HERE")
+    # Try to get the key from the current environment. Do NOT include the
+    # real secret in the returned JSON unless `mask_sensitive` is False.
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+
+    # Use an explicit redaction token by default. Only include the real value
+    # when the caller explicitly requests unmasked output.
+    env_value = api_key if (not mask_sensitive and api_key) else "<REDACTED>"
 
     config = {
         "mcpServers": {
             "plesk-unified": {
                 "command": python_path,
-                "args": [
-                    str(server_script)
-                ],
+                "args": [str(server_script)],
                 "env": {
-                    "OPENROUTER_API_KEY": api_key
+                    "OPENROUTER_API_KEY": env_value
                 }
             }
         }
     }
-    cfg_json = json.dumps(config, indent=4)
-    if mask_sensitive and api_key and api_key != "YOUR_KEY_HERE":
-        cfg_json = cfg_json.replace(api_key, "<REDACTED>")
-    return cfg_json
+
+    return json.dumps(config, indent=4)
 
 def main():
     parser = argparse.ArgumentParser(description="Warm-up models and generate MCP config")
