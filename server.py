@@ -10,6 +10,9 @@ from typing import Any, cast
 # Lightweight import needed for MCP registration
 from fastmcp import FastMCP
 
+# Platform detection utilities
+from platform_utils import get_device_config, print_platform_info
+
 # --- SILENCE THE NOISE ---
 os.environ["TQDM_DISABLE"] = "1"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
@@ -58,7 +61,12 @@ def get_resources() -> tuple[Any, Any, type]:
     if _GLOBALS["Schema"] is not None:
         return _GLOBALS["embedding_model"], _GLOBALS["reranker"], _GLOBALS["Schema"]
 
-    print("[LOG] Lazy loading AI models...", file=sys.stderr)
+    # Print platform info and get device configuration
+    print_platform_info()
+    device_config = get_device_config()
+    device = device_config.get("device", "cpu")
+
+    print(f"[LOG] Lazy loading AI models on device: {device}...", file=sys.stderr)
     # Import heavy dependencies lazily to reduce startup noise/memory
     import lancedb
     from lancedb.pydantic import LanceModel
@@ -66,8 +74,12 @@ def get_resources() -> tuple[Any, Any, type]:
     from lancedb.rerankers import CrossEncoderReranker
 
     registry = get_registry()
-    embedding_model = registry.get("huggingface").create(name="BAAI/bge-m3")
-    reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
+    # Create embedding model with platform-optimized device
+    embedding_model = registry.get("huggingface").create(
+        name="BAAI/bge-m3", device=device
+    )
+    # Create reranker with same device configuration
+    reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base", device=device)
 
     class UnifiedSchema(LanceModel):
         vector: Any = embedding_model.VectorField()

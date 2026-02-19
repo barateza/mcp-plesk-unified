@@ -31,6 +31,8 @@ dependencies = [
     "gitpython>=3.1.46",
     "lancedb>=0.29.1",
     "sentence-transformers>=5.2.2",
+    # Note: torch is already a dependency of sentence-transformers
+    # For GPU support, install separately (see README)
 ]
 
 [project.urls]
@@ -62,6 +64,9 @@ extend-exclude = '''
 '''
 
 [project.optional-dependencies]
+# Note: torch is already a dependency of sentence-transformers
+# For GPU support, install PyTorch with CUDA from https://pytorch.org/
+# The server will automatically detect and use GPU acceleration if available.
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.3.0",

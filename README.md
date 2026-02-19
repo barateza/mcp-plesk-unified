@@ -50,8 +50,58 @@ cd mcp-plesk-unified
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install the package
+# Install the package with uv (recommended)
+uv pip install -e .
+
+# Or with pip
 pip install -e .
+```
+
+### GPU Acceleration (Optional)
+
+The server automatically detects and uses GPU acceleration when available:
+
+| Platform | GPU Type | Acceleration |
+|----------|----------|---------------|
+| macOS M1/M2/M3 | Apple Silicon MPS | ✅ Automatic |
+| Windows + NVIDIA | CUDA | ✅ Automatic |
+| Linux + NVIDIA | CUDA | ✅ Automatic |
+| Other | CPU | ✅ Fallback |
+
+#### Installing with GPU Support
+
+The default `sentence-transformers` includes CPU-only PyTorch. For GPU acceleration, install PyTorch with CUDA from the official source:
+
+**macOS (Apple Silicon):**
+```bash
+# Install PyTorch with Apple Silicon support
+pip install torch
+# Or use uv
+uv pip install torch
+```
+
+**Windows/Linux (NVIDIA CUDA):**
+```bash
+# Install PyTorch with CUDA 12.4 (latest stable)
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# Or use uv
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+```
+
+> **Important:** If you already have a CUDA-enabled PyTorch installed, it will not be uninstalled. The server will automatically detect and use your GPU.
+
+#### Forcing a Specific Device
+
+You can override automatic detection by setting the `FORCE_DEVICE` environment variable:
+
+```bash
+# Force CPU even if GPU is available
+export FORCE_DEVICE=cpu  # Linux/macOS
+set FORCE_DEVICE=cpu     # Windows
+
+# Or run
+FORCE_DEVICE=cpu python server.py
 ```
 
 ### ⚠️ First-Run Warm-Up (Required)
