@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "skills": {
+    "best-practices": {
+      "name": "best-practices",
+      "source": "local",
+      "contentHash": "397e1833b5a71830f875b57926aafe6b450e76a4407282506e5d74766411c991",
+      "installedAt": "2026-02-19T17:43:21.385Z",
+      "updatedAt": "2026-02-19T17:43:21.456Z",
+      "agents": [
+        "cline"
+      ],
+      "method": "copy",
+      "global": false
+    },
+    "coding-guidelines": {
+      "name": "coding-guidelines",
+      "source": "local",
+      "contentHash": "7d98273930ef3622d6d5339403860722a26e5de91fdcf9d96738618aedd82c10",
+      "installedAt": "2026-02-19T17:43:21.396Z",
+      "updatedAt": "2026-02-19T17:43:21.462Z",
+      "agents": [
+        "cline"
+      ],
+      "method": "copy",
+      "global": false
+    },
+    "docs-writer": {
+      "name": "docs-writer",
+      "source": "local",
+      "contentHash": "f8327ca0ba45f57625f26ed23d8d013717640b68379f027a59f6337f489960f0",
+      "installedAt": "2026-02-19T17:43:21.402Z",
+      "updatedAt": "2026-02-19T17:43:21.469Z",
+      "agents": [
+        "cline"
+      ],
+      "method": "copy",
+      "global": false
+    },
+    "security-best-practices": {
+      "name": "security-best-practices",
+      "source": "local",
+      "contentHash": "e75a7e845663b8d7b072860acc5d5ebb44dddb4ea7622a77c055c3fbae15aa06",
+      "installedAt": "2026-02-19T17:43:21.423Z",
+      "updatedAt": "2026-02-19T17:43:21.762Z",
+      "agents": [
+        "cline"
+      ],
+      "method": "copy",
+      "global": false
+    },
+    "technical-design-doc-creator": {
+      "name": "technical-design-doc-creator",
+      "source": "local",
+      "contentHash": "e76734fb9240df31760a2bbeb80afbd70e43a5d4fa3b9fb9c23c6c1a4a7862bf",
+      "installedAt": "2026-02-19T17:43:21.432Z",
+      "updatedAt": "2026-02-19T17:43:21.769Z",
+      "agents": [
+        "cline"
+      ],
+      "method": "copy",
+      "global": false
+    },
+    "tlc-spec-driven": {
+      "name": "tlc-spec-driven",
+      "source": "local",
+      "contentHash": "1879205e8a56503b2093a9e5fa4fad0253431aca753cdde7e32762ca39469a0b",
+      "installedAt": "2026-02-19T17:43:21.450Z",
+      "updatedAt": "2026-02-19T17:43:21.781Z",
+      "agents": [
+        "cline"
+      ],
+      "method": "copy",
+      "global": false
+    }
+  }
+}
