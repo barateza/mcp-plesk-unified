@@ -141,3 +141,4 @@ knowledge_base/
 # uv package manager
 .uv/
 
+uv.lock
