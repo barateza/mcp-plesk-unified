@@ -59,7 +59,16 @@ def main():
     parser = argparse.ArgumentParser(description="Warm-up models and generate MCP config")
     parser.add_argument("--show-secret", action="store_true",
                         help="Print full config including any API key (unsafe)")
+    parser.add_argument("--dangerous-yes-i-know", action="store_true",
+                        help="Explicit confirmation required to print secrets."
+                             " Must be used together with --show-secret.")
     args = parser.parse_args()
+
+    if args.show_secret and not args.dangerous_yes_i_know:
+        print("\nERROR: --show-secret is dangerous. To proceed, pass:\n"
+              "  python main.py --show-secret --dangerous-yes-i-know\n",
+              file=sys.stderr)
+        sys.exit(2)
 
     print("=" * 60)
     print("  mcp-plesk-unified — Model Warm-Up & Config Generator")
