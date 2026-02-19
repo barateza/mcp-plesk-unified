@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import threading
+import traceback
 import requests
 import re
 from pathlib import Path
@@ -61,6 +62,9 @@ _JOB_STATUS = {
     "history": [],
 }
 
+# Heartbeat helper state
+_HEARTBEAT: dict[str, any] = {"thread": None, "event": None, "message": None, "start": None}
+
 
 def log_job(msg: str):
     """Helper to update global status and print to stderr"""
@@ -69,49 +73,118 @@ def log_job(msg: str):
     print(f"[LOG] {msg}", file=sys.stderr)
 
 
+def _heartbeat_loop(stop_event: threading.Event, message: str, interval: int = 5):
+    start = time.time()
+    while not stop_event.is_set():
+        elapsed = int(time.time() - start)
+        heartbeat_msg = f"{message} Elapsed: {elapsed}s"
+        # Keep history bounded to avoid unlimited growth
+        _JOB_STATUS["last_message"] = heartbeat_msg
+        _JOB_STATUS["history"].append(heartbeat_msg)
+        print(f"[LOG] {heartbeat_msg}", file=sys.stderr)
+        stop_event.wait(interval)
+
+
+def start_status_heartbeat(message: str, interval: int = 5):
+    """Start a background heartbeat that updates `_JOB_STATUS` periodically."""
+    if _HEARTBEAT.get("thread") and _HEARTBEAT["thread"].is_alive():
+        return
+    ev = threading.Event()
+    t = threading.Thread(target=_heartbeat_loop, args=(ev, message, interval), daemon=True)
+    _HEARTBEAT["thread"] = t
+    _HEARTBEAT["event"] = ev
+    _HEARTBEAT["message"] = message
+    _HEARTBEAT["start"] = time.time()
+    t.start()
+
+
+def stop_status_heartbeat():
+    """Stop any running heartbeat."""
+    ev = _HEARTBEAT.get("event")
+    if ev:
+        ev.set()
+    _HEARTBEAT["thread"] = None
+    _HEARTBEAT["event"] = None
+    _HEARTBEAT["message"] = None
+    _HEARTBEAT["start"] = None
+
+
 def get_resources() -> tuple[Any, Any, type]:
     """Lazy loads heavy AI models to prevent MCP startup timeouts."""
     if _GLOBALS["Schema"] is not None:
         return _GLOBALS["embedding_model"], _GLOBALS["reranker"], _GLOBALS["Schema"]
 
-    print("[LOG] Lazy loading AI models...", file=sys.stderr)
-    import lancedb
-    # [FIX 1] Import Vector here
-    from lancedb.pydantic import LanceModel, Vector
-    from lancedb.embeddings import get_registry
-    from lancedb.rerankers import CrossEncoderReranker
+    log_job("Lazy loading AI models... (get_resources)")
+    try:
+        log_job("Importing LanceDB and model registry...")
+        import lancedb
+        # [FIX 1] Import Vector here
+        from lancedb.pydantic import LanceModel, Vector
+        from lancedb.embeddings import get_registry
+        from lancedb.rerankers import CrossEncoderReranker
 
-    registry = get_registry()
-    embedding_model = registry.get("huggingface").create(name="BAAI/bge-m3")
-    reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
+        registry = get_registry()
 
-    class UnifiedSchema(LanceModel):
-        # BGE-M3 uses 1024 dimensions. This tells Arrow exactly how to store the data.
-        vector: Vector(1024) = embedding_model.VectorField() # type: ignore
-        text: str = embedding_model.SourceField()
-        title: str = ""
-        filename: str = ""
-        category: str = ""
-        breadcrumb: str = ""
+        # Start heartbeat for the large model download/initialization
+        start_status_heartbeat("Downloading/Loading 'BAAI/bge-m3' (Approx 2GB)... Please wait.")
+        log_job("Downloading/Loading 'BAAI/bge-m3' (Approx 2GB)...")
+        try:
+            embedding_model = registry.get("huggingface").create(name="BAAI/bge-m3")
+            log_job("Embedding model loaded: BAAI/bge-m3")
+        except Exception as e:
+            log_job(f"Failed to load embedding model: {e}")
+            log_job(traceback.format_exc())
+            raise
+        finally:
+            stop_status_heartbeat()
 
-    _GLOBALS["embedding_model"] = embedding_model
-    _GLOBALS["reranker"] = reranker
-    _GLOBALS["Schema"] = UnifiedSchema
-    _GLOBALS["lancedb"] = lancedb
+        # Reranker may also download weights; log around it
+        start_status_heartbeat("Loading reranker 'BAAI/bge-reranker-base'...")
+        try:
+            reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
+            log_job("Reranker loaded: BAAI/bge-reranker-base")
+        except Exception as e:
+            log_job(f"Failed to load reranker: {e}")
+            log_job(traceback.format_exc())
+            raise
+        finally:
+            stop_status_heartbeat()
 
-    return embedding_model, reranker, UnifiedSchema
+        class UnifiedSchema(LanceModel):
+            # BGE-M3 uses 1024 dimensions. This tells Arrow exactly how to store the data.
+            vector: Vector(1024) = embedding_model.VectorField()  # type: ignore
+            text: str = embedding_model.SourceField()
+            title: str = ""
+            filename: str = ""
+            category: str = ""
+            breadcrumb: str = ""
+
+        _GLOBALS["embedding_model"] = embedding_model
+        _GLOBALS["reranker"] = reranker
+        _GLOBALS["Schema"] = UnifiedSchema
+        _GLOBALS["lancedb"] = lancedb
+
+        log_job("AI models and schema initialized successfully.")
+        return embedding_model, reranker, UnifiedSchema
+    except Exception:
+        log_job("CRITICAL: get_resources failed.")
+        raise
 
 
 def get_table(create_new=False):
     _, _, Schema = get_resources()
     import lancedb
 
+    log_job("Connecting to LanceDB...")
     db = lancedb.connect(str(DB_PATH))
     try:
         if create_new:
+            log_job("Creating new LanceDB table (overwrite)...")
             return db.create_table("plesk_knowledge", schema=Schema, mode="overwrite")
+        log_job("Opening existing LanceDB table...")
         return db.open_table("plesk_knowledge")
     except Exception:
+        log_job("Failed opening table; attempting to create...")
         return db.create_table("plesk_knowledge", schema=Schema, mode="create")
 
 
@@ -168,13 +241,19 @@ def ensure_source_exists(source):
     if source["path"].exists() and any(source["path"].iterdir()):
         return True
     if source["repo_url"]:
-        print(f"[LOG] Downloading {source['cat']}...", file=sys.stderr)
+        log_job(f"Downloading {source['cat']}...")
         try:
             from git import Repo
-            Repo.clone_from(source["repo_url"], source["path"])
-            return True
+            # Use a short heartbeat while cloning to keep status visible
+            start_status_heartbeat(f"Cloning {source['cat']} from {source['repo_url']}...")
+            try:
+                Repo.clone_from(source["repo_url"], source["path"])
+                return True
+            finally:
+                stop_status_heartbeat()
         except Exception as e:
-            print(f"[ERR] Failed to clone {source['cat']}: {e}", file=sys.stderr)
+            log_job(f"[ERR] Failed to clone {source['cat']}: {e}")
+            log_job(traceback.format_exc())
             return False
     return False
 
@@ -195,7 +274,7 @@ def generate_and_enrich_toc(source_path, category_name, enrich_ai=True):
         except Exception:
             pass
 
-    print(f"[LOG] Processing TOC for {category_name}...", file=sys.stderr)
+    log_job(f"Processing TOC for {category_name}...")
     for root, _, files in os.walk(source_path):
         if any(ignore in root for ignore in ignore_list):
             continue
@@ -225,18 +304,18 @@ def chunk_php_stubs(file_path):
     """
     content = file_path.read_text(encoding="utf-8", errors="ignore")
     lines = content.split('\n')
-    
+
     chunks = []
     current_class = "Global"
     docblock_buffer = []
     in_docblock = False
-    
+
     class_pattern = re.compile(r'^\s*(?:abstract\s+|final\s+)*(class|interface|trait)\s+(\w+)', re.IGNORECASE)
     method_pattern = re.compile(r'^\s*(?:public|protected|private|static|\s)*function\s+(\w+)', re.IGNORECASE)
 
     for line in lines:
         stripped = line.strip()
-        
+
         if stripped.startswith('/**'):
             in_docblock = True
             docblock_buffer = [line]
@@ -264,7 +343,7 @@ def chunk_php_stubs(file_path):
             method_name = method_match.group(1)
             full_text = f"// Class: {current_class}\n" 
             full_text += "\n".join(docblock_buffer) + "\n" + line
-            
+
             chunks.append({
                 "title": f"{current_class}::{method_name}",
                 "text": full_text,
@@ -286,6 +365,9 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
     _JOB_STATUS["history"] = []
 
     try:
+        thread_name = threading.current_thread().name
+        log_job(f"Worker started: thread={thread_name} target_category={target_category} reset_db={reset_db} enrich_ai={enrich_ai}")
+
         log_job("Starting resource loading...")
         get_resources()
 
@@ -308,6 +390,7 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
 
             # 1. IDENTIFY FILES
             files = []
+            chunk_size = 3000
             if source["type"] == "html":
                 files = list(source["path"].rglob("*.htm*"))
                 chunk_size = 3000
@@ -319,9 +402,14 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
 
             # 2. PROCESS FILES
             cat_docs = []
+            processed_files = 0
             for f in files:
                 if f.name.startswith("_") or f.name.endswith(".json"):
                     continue
+
+                processed_files += 1
+                if processed_files % 50 == 0:
+                    log_job(f"Processed {processed_files} files for {source['cat']}...")
 
                 try:
                     # === BRANCH A: CUSTOM PHP CHUNKING ===
@@ -356,20 +444,37 @@ def _worker_ingest(target_category: str, reset_db: bool, enrich_ai: bool):
                                 "breadcrumb": breadcrumb or "",
                             })
                 except Exception as e:
-                    print(f"[WARN] Failed to parse {f.name}: {e}", file=sys.stderr)
+                    log_job(f"[WARN] Failed to parse {f.name}: {e}")
+                    log_job(traceback.format_exc())
 
             if cat_docs:
                 log_job(f"Inserting {len(cat_docs)} chunks for {source['cat']}...")
-                table.add(cat_docs)
-                total_chunks += len(cat_docs)
+                # Batch inserts to avoid long blocking calls
+                BATCH_SIZE = 500
+                for i in range(0, len(cat_docs), BATCH_SIZE):
+                    batch = cat_docs[i : i + BATCH_SIZE]
+                    batch_num = i // BATCH_SIZE + 1
+                    total_batches = (len(cat_docs) + BATCH_SIZE - 1) // BATCH_SIZE
+                    log_job(f"Inserting batch {batch_num}/{total_batches} ({len(batch)} docs) for {source['cat']}...")
+                    try:
+                        table.add(batch)
+                    except Exception as e:
+                        log_job(f"[ERR] Failed to insert batch {batch_num} for {source['cat']}: {e}")
+                        log_job(traceback.format_exc())
+                    else:
+                        log_job(f"Batch {batch_num}/{total_batches} inserted.")
+                    total_chunks += len(batch)
+
                 log_job(f"SUCCESS: {source['cat']} complete.")
 
         log_job(f"Ingestion finished. Added {total_chunks} total chunks.")
 
     except Exception as e:
         log_job(f"CRITICAL ERROR: {str(e)}")
+        log_job(traceback.format_exc())
     finally:
         _JOB_STATUS["is_running"] = False
+
 
 # --- MCP Resources ---
 
@@ -458,6 +563,7 @@ def refresh_knowledge(
         target=_worker_ingest, args=(target_category, reset_db, enrich_ai), daemon=True
     )
     t.start()
+    log_job(f"Spawned ingestion worker (thread={t.name}) target_category={target_category} reset_db={reset_db} enrich_ai={enrich_ai}")
 
     return "Ingestion started in background. Use 'check_ingestion_status' to monitor progress."
 
@@ -466,7 +572,7 @@ def refresh_knowledge(
 def check_ingestion_status() -> str:
     """Checks the status of the background ingestion job."""
     status_str = "RUNNING" if _JOB_STATUS["is_running"] else "IDLE"
-    history = "\n".join([f"- {h}" for h in _JOB_STATUS["history"][-5:]])
+    history = "\n".join([f"- {h}" for h in _JOB_STATUS["history"][-10:]])
     return f"Status: {status_str}\nLast Message: {_JOB_STATUS['last_message']}\n\nRecent Log:\n{history}"
 
 
@@ -491,6 +597,7 @@ def search_plesk_unified(
             for r in results
         ]
     )
+
 
 if __name__ == "__main__":
     mcp.run()
