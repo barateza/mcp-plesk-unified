@@ -18,6 +18,10 @@ from fastmcp import FastMCP
 # Allow toggling progress bars via ENV. Default to True for better UX.
 SHOW_PROGRESS = os.environ.get("MODEL_DOWNLOAD_SHOW_PROGRESS", "1") == "1"
 
+# --- CRITICAL FIX: FORCE OFFLINE MODE ---
+# We already downloaded the models. Do not let library try to ping HF for updates.
+os.environ["HF_HUB_OFFLINE"] = "1"
+
 # Silence standard library noise, but keep critical errors
 os.environ["TQDM_DISABLE"] = "1" if not SHOW_PROGRESS else "0"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
@@ -89,16 +93,11 @@ def _heartbeat_loop(stop_event: threading.Event, message: str, interval: int = 5
     start = time.time()
     while not stop_event.is_set():
         elapsed = int(time.time() - start)
-        # If a download is running, the message is dynamic (updated by the downloader)
-        # otherwise we use the static message passed in.
         current_msg = _JOB_STATUS["last_message"] if "Downloading" in _JOB_STATUS["last_message"] else message
         
-        heartbeat_msg = f"{current_msg} (Elapsed: {elapsed}s)"
-        
-        # Only log to stderr periodically to avoid spamming the console, 
-        # but update internal status frequently
-        if elapsed % interval == 0:
-            print(f"[LOG] {heartbeat_msg}", file=sys.stderr)
+        # LOG EVERY 5 SECONDS SO WE KNOW IT'S ALIVE
+        if elapsed % 5 == 0:
+            print(f"[LOG] {current_msg} (Elapsed: {elapsed}s)", file=sys.stderr)
             
         stop_event.wait(1) 
 
@@ -131,27 +130,23 @@ def stop_status_heartbeat():
 def fast_download_model(repo_id: str):
     """
     Downloads model using huggingface_hub snapshot_download with parallelism.
-    Hooks into the _JOB_STATUS to show real-time percentage.
     """
+    # Temporarily allow network for this specific function
+    os.environ["HF_HUB_OFFLINE"] = "0"
     from huggingface_hub import snapshot_download
     from tqdm import tqdm
 
     log_job(f"Initiating fast download for: {repo_id}")
 
-    # Custom TQDM to intercept progress and update our heartbeat
     class FastDownloadTqdm(tqdm):
         def update(self, n=1):
             super().update(n)
-            # Calculate percentage if total is known
             if self.total:
                 percent = (self.n / self.total) * 100
-                # Update the global status message directly
                 msg = f"Downloading {repo_id}: {percent:.1f}% ({self.n / 1024 / 1024:.1f}MB / {self.total / 1024 / 1024:.1f}MB)"
                 _JOB_STATUS["last_message"] = msg
 
     try:
-        # We patch tqdm.auto.tqdm so snapshot_download uses our custom class
-        # This allows us to use max_workers (parallelism) while capturing progress
         original_tqdm = tqdm
         import tqdm.auto
         tqdm.auto.tqdm = FastDownloadTqdm
@@ -160,18 +155,19 @@ def fast_download_model(repo_id: str):
             repo_id=repo_id,
             cache_dir=MODEL_CACHE_DIR,
             library_name="sentence-transformers",
-            max_workers=4,  # Parallel download for speed
+            max_workers=4,
             tqdm_class=FastDownloadTqdm
         )
     except Exception as e:
         log_job(f"Download warning for {repo_id}: {e}")
     finally:
-        # Restore original tqdm to avoid side effects
         tqdm.auto.tqdm = original_tqdm
+        # RE-ENABLE OFFLINE MODE
+        os.environ["HF_HUB_OFFLINE"] = "1"
 
 
 def get_resources() -> tuple[Any, Any, type]:
-    """Lazy loads heavy AI models to prevent MCP startup timeouts."""
+    """Lazy loads heavy AI models."""
     if _GLOBALS["Schema"] is not None:
         return _GLOBALS["embedding_model"], _GLOBALS["reranker"], _GLOBALS["Schema"]
 
@@ -195,50 +191,80 @@ def get_resources() -> tuple[Any, Any, type]:
         else:
             log_job("🐢 NO GPU DETECTED: Running on CPU")
 
-        registry = get_registry()
-
-        # --- PRE-CHECK / FAST DOWNLOAD ---
-        # We explicitly download before loading to ensure we can show progress
-        # and use parallel downloading (which lancedb's internal loader might not do efficiently).
-        
+        # --- LOADING ---
         embedding_model_name = "BAAI/bge-m3"
         reranker_model_name = "BAAI/bge-reranker-base"
 
-        start_status_heartbeat("Checking model cache...")
-        
-        # Check if we need to download (simple check: if cache dir has content)
-        # Note: snapshot_download is smart; if files exist it verifies quickly.
-        if SHOW_PROGRESS:
-             fast_download_model(embedding_model_name)
-             fast_download_model(reranker_model_name)
-
-        stop_status_heartbeat()
-
-        # --- LOADING ---
         start_status_heartbeat("Loading Embedding Model into Memory...")
+        
+# DEBUG: Verify model cache health before loading
+        embedding_model_path = MODEL_CACHE_DIR / "models--BAAI--bge-m3"
+        reranker_model_path = MODEL_CACHE_DIR / "models--BAAI--bge-reranker-base"
+        
+        # Check if both models exist and contain files
+        if not (embedding_model_path.exists() and any(embedding_model_path.iterdir())):
+            log_job(f"Embedding model cache issue: {embedding_model_path} missing or empty. Triggering download.")
+            stop_status_heartbeat()
+            fast_download_model(embedding_model_name)
+            start_status_heartbeat("Resuming load from local cache...")
+            
+        if not (reranker_model_path.exists() and any(reranker_model_path.iterdir())):
+            log_job(f"Reranker model cache issue: {reranker_model_path} missing or empty. Triggering download.")
+            stop_status_heartbeat()
+            fast_download_model(reranker_model_name)
+            start_status_heartbeat("Resuming load from local cache...")
+
         try:
-            embedding_model = registry.get("huggingface").create(
-                name=embedding_model_name,
-                device=device_name,
-                # Force it to use our cache where we just downloaded files
-                # Some versions of lancedb/registry might need explicit cache path in kwargs
-            )
-            log_job(f"Embedding model loaded: {embedding_model_name} on {device_name.upper()}")
+log_job(f"DEBUG: Initializing registry for {embedding_model_name}...")
+            registry = get_registry()
+            
+            log_job(f"DEBUG: Creating model object (device={device_name})...")
+            # We explicitly rely on HF_HUB_OFFLINE=1 env var to prevent network hang
+            try:
+                embedding_model = registry.get("huggingface").create(
+                    name=embedding_model_name,
+                    device=device_name,
+                )
+                log_job(f"SUCCESS: Embedding model loaded on {device_name.upper()}")
+            except Exception as e:
+                log_job(f"Failed to load embedding model from cache: {e}")
+                log_job(f"Triggering re-download of {embedding_model_name}...")
+                stop_status_heartbeat()
+                fast_download_model(embedding_model_name)
+                start_status_heartbeat("Resuming load from local cache...")
+                embedding_model = registry.get("huggingface").create(
+                    name=embedding_model_name,
+                    device=device_name,
+                )
         except Exception as e:
             log_job(f"Failed to load embedding model: {e}")
+            log_job(traceback.format_exc())
             raise
 
         stop_status_heartbeat()
         start_status_heartbeat("Loading Reranker into Memory...")
 
         try:
-            reranker = CrossEncoderReranker(
-                model_name=reranker_model_name,
-                device=device_name
-            )
-            log_job(f"Reranker loaded: {reranker_model_name} on {device_name.upper()}")
+log_job(f"DEBUG: Initializing reranker {reranker_model_name}...")
+            try:
+                reranker = CrossEncoderReranker(
+                    model_name=reranker_model_name,
+                    device=device_name
+                )
+                log_job(f"SUCCESS: Reranker loaded on {device_name.upper()}")
+            except Exception as e:
+                log_job(f"Failed to load reranker from cache: {e}")
+                log_job(f"Triggering re-download of {reranker_model_name}...")
+                stop_status_heartbeat()
+                fast_download_model(reranker_model_name)
+                start_status_heartbeat("Resuming load from local cache...")
+                reranker = CrossEncoderReranker(
+                    model_name=reranker_model_name,
+                    device=device_name
+                )
         except Exception as e:
             log_job(f"Failed to load reranker: {e}")
+            log_job(traceback.format_exc())
             raise
         finally:
             stop_status_heartbeat()
@@ -283,7 +309,6 @@ def get_table(create_new=False):
 
 # --- AI Enrichment (No Changes) ---
 def get_ai_description(file_path, file_name):
-    """Summarizes file with a 3-tier fallback chain."""
     models = [
         "arcee-ai/trinity-large-preview:free",
         "stepfun/step-3-5-flash:free",
@@ -302,6 +327,11 @@ def get_ai_description(file_path, file_name):
 
     for model in models:
         try:
+            # Re-enable network for API calls
+            env_backup = os.environ.get("HF_HUB_OFFLINE")
+            if "HF_HUB_OFFLINE" in os.environ:
+                 del os.environ["HF_HUB_OFFLINE"]
+                 
             response = requests.post(
                 url="https://openrouter.ai/api/v1/chat/completions",
                 headers={
@@ -322,6 +352,10 @@ def get_ai_description(file_path, file_name):
                 ),
                 timeout=15,
             )
+            # Restore offline mode
+            if env_backup:
+                os.environ["HF_HUB_OFFLINE"] = env_backup
+                
             if response.status_code == 200:
                 return response.json()["choices"][0]["message"]["content"].strip()
         except Exception:
