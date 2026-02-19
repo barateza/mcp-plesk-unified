@@ -18,9 +18,14 @@ import time
 import json
 import os
 from pathlib import Path
+import argparse
 
-def generate_mcp_config():
-    """Generates the JSON config for Claude Desktop/Cursor."""
+def generate_mcp_config(mask_sensitive: bool = True):
+    """Generates the JSON config for Claude Desktop/Cursor.
+
+    If `mask_sensitive` is True (default) the API key value is replaced with
+    a redaction token to avoid printing secrets to stdout/logs.
+    """
     # Get the absolute path to the python interpreter in the venv
     python_path = sys.executable
     
@@ -45,9 +50,17 @@ def generate_mcp_config():
             }
         }
     }
-    return json.dumps(config, indent=4)
+    cfg_json = json.dumps(config, indent=4)
+    if mask_sensitive and api_key and api_key != "YOUR_KEY_HERE":
+        cfg_json = cfg_json.replace(api_key, "<REDACTED>")
+    return cfg_json
 
 def main():
+    parser = argparse.ArgumentParser(description="Warm-up models and generate MCP config")
+    parser.add_argument("--show-secret", action="store_true",
+                        help="Print full config including any API key (unsafe)")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("  mcp-plesk-unified — Model Warm-Up & Config Generator")
     print("=" * 60)
@@ -71,7 +84,7 @@ def main():
         print("  • Cursor: Features > MCP > Add New MCP Server")
         print()
         print("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
-        print(generate_mcp_config())
+        print(generate_mcp_config(mask_sensitive=not args.show_secret))
         print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print()
         
