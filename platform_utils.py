@@ -10,33 +10,38 @@ Provides cross-platform support for:
 import os
 import platform
 import sys
+import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 # Lazy import for torch to avoid heavy import at module level
-# For type checking, we use TYPE_CHECKING to avoid runtime import
 if TYPE_CHECKING:
     pass
 
 _torch: Optional[Any] = None
+
+# Inherit logger from the main application (configured in server.py)
+logger = logging.getLogger("plesk_unified")
 
 
 def _get_torch() -> Any:
     """Lazy load torch to avoid import overhead."""
     global _torch
     if _torch is None:
-        import torch
+        try:
+            import torch
 
-        _torch = torch
+            _torch = torch
+        except ImportError:
+            logger.warning(
+                "PyTorch import failed. GPU acceleration will be unavailable."
+            )
+            raise
     return _torch
 
 
 def get_platform_info() -> dict:
     """
     Returns a dictionary with detailed platform information.
-
-    Returns:
-        dict: Platform details including OS, machine, Python version,
-              and available compute devices.
     """
     info: dict[str, Any] = {
         "system": platform.system(),
@@ -48,26 +53,26 @@ def get_platform_info() -> dict:
     # Try to get PyTorch info
     try:
         torch = _get_torch()
-        info["torch_version"] = str(torch.__version__)  # Ensure string type
+        info["torch_version"] = str(torch.__version__)
         info["cuda_available"] = torch.cuda.is_available()
+        # Check MPS availability on macOS
         info["mps_available"] = (
             torch.backends.mps.is_available()
-            if platform.system() == "Darwin"
+            if platform.system() == "Darwin" and hasattr(torch.backends, "mps")
             else False
         )
 
         if torch.cuda.is_available():
-            info["cuda_version"] = str(torch.version.cuda)  # Ensure string type
+            info["cuda_version"] = str(torch.version.cuda)
             info["gpu_count"] = torch.cuda.device_count()
-            info["gpu_name"] = (
-                str(torch.cuda.get_device_name(0))
-                if torch.cuda.device_count() > 0
-                else "Unknown"
-            )
+            if torch.cuda.device_count() > 0:
+                info["gpu_name"] = str(torch.cuda.get_device_name(0))
+
     except ImportError:
         info["torch_available"] = False
     except Exception as e:
         info["torch_error"] = str(e)
+        logger.debug("Error gathering detailed platform info: %s", e)
 
     return info
 
@@ -75,18 +80,12 @@ def get_platform_info() -> dict:
 def get_optimal_device() -> str:
     """
     Determine the optimal compute device based on platform and hardware.
-
-    Priority order:
-    1. macOS with Apple Silicon (M1/M2/M3) -> MPS
-    2. Windows/Linux with NVIDIA GPU -> CUDA
-    3. Otherwise -> CPU
-
-    Returns:
-        str: Device identifier ("cuda", "mps", or "cpu")
+    Priority: Environment Variable -> MPS (macOS) -> CUDA (Win/Linux) -> CPU
     """
     # Check for forced device via environment variable
     forced_device = os.environ.get("FORCE_DEVICE", "").lower().strip()
     if forced_device in ("cuda", "mps", "cpu"):
+        logger.info("Device forced via env var: %s", forced_device)
         return forced_device
 
     system = platform.system()
@@ -95,7 +94,7 @@ def get_optimal_device() -> str:
     if system == "Darwin":
         try:
             torch = _get_torch()
-            if torch.backends.mps.is_available():
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
         except Exception:
             pass
@@ -110,17 +109,12 @@ def get_optimal_device() -> str:
         except Exception:
             pass
 
-    # Fallback to CPU
     return "cpu"
 
 
 def get_device_config() -> dict:
     """
     Get comprehensive device configuration for model initialization.
-
-    Returns:
-        dict: Configuration options for embedding/reranking models
-              including device, precision, and optimization settings.
     """
     device = get_optimal_device()
     config: dict[str, Any] = {
@@ -128,54 +122,41 @@ def get_device_config() -> dict:
         "precision": "float32",
     }
 
-    # Add CUDA-specific settings
-    if device == "cuda":
-        try:
+    try:
+        if device == "cuda":
             torch = _get_torch()
-            # Check if half precision is available
             if torch.cuda.is_available():
-                config["precision"] = "float16"  # Faster inference on modern GPUs
+                config["precision"] = "float16"
                 config["torch_dtype"] = "float16"
-        except Exception:
-            pass
-
-    # MPS supports float16 on Apple Silicon
-    elif device == "mps":
-        config["precision"] = "float16"
-        config["torch_dtype"] = "float16"
+        elif device == "mps":
+            config["precision"] = "float16"
+            config["torch_dtype"] = "float16"
+    except Exception as e:
+        logger.debug("Failed to set precision config: %s", e)
 
     return config
 
 
-def print_platform_info() -> None:
-    """Print formatted platform information to stderr."""
+def log_platform_info() -> None:
+    """Logs platform information to the shared logger."""
     info = get_platform_info()
-
-    print("=" * 50, file=sys.stderr)
-    print("  Platform Information", file=sys.stderr)
-    print("=" * 50, file=sys.stderr)
-    print(f"  OS: {info.get('system')} {info.get('machine')}", file=sys.stderr)
-    print(f"  Python: {info.get('python_version')}", file=sys.stderr)
-
-    if "torch_version" in info:
-        print(f"  PyTorch: {info.get('torch_version')}", file=sys.stderr)
-        print(f"  CUDA Available: {info.get('cuda_available', False)}", file=sys.stderr)
-
-        if info.get("cuda_available"):
-            print(
-                f"  CUDA Version: {info.get('cuda_version', 'unknown')}",
-                file=sys.stderr,
-            )
-            print(f"  GPU Count: {info.get('gpu_count', 0)}", file=sys.stderr)
-            if info.get("gpu_name"):
-                print(f"  GPU Name: {info.get('gpu_name')}", file=sys.stderr)
-
-        if info.get("mps_available"):
-            print("  MPS (Apple Silicon): Available", file=sys.stderr)
-
     device = get_optimal_device()
-    print(f"\n  Selected Device: {device.upper()}", file=sys.stderr)
-    print("=" * 50, file=sys.stderr)
+
+    # Construct a concise summary for the log
+    summary = [
+        f"OS: {info.get('system')} {info.get('machine')}",
+        f"Python: {info.get('python_version')}",
+        f"Device: {device.upper()}",
+    ]
+
+    if info.get("cuda_available"):
+        summary.append(
+            f"GPU: {info.get('gpu_name', 'Unknown')} (CUDA {info.get('cuda_version')})"
+        )
+    elif info.get("mps_available"):
+        summary.append("GPU: Apple Silicon (MPS)")
+
+    logger.info("Platform Check: " + " | ".join(summary))
 
 
 def is_apple_silicon() -> bool:
@@ -201,18 +182,13 @@ def is_macos() -> bool:
 def get_model_cache_dir() -> str:
     """
     Get the appropriate model cache directory for the platform.
-
-    Returns:
-        str: Path to the model cache directory
     """
     import tempfile
 
-    # Use platform-specific default locations
     if is_windows():
         base = os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
         return os.path.join(base, "huggingface", "hub")
     elif is_macos():
         return os.path.expanduser("~/Library/Caches/huggingface/hub")
     else:
-        # Linux and others
         return os.path.expanduser("~/.cache/huggingface/hub")
