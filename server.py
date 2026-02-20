@@ -68,20 +68,24 @@ from pydantic import Field
 from typing import Any, Dict, List, Optional, Tuple
 
 # Detect best device
+# Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
+device = "cpu"
 try:
     import torch
 
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    # Check for CUDA first (NVIDIA GPUs on Windows/Linux)
+    if torch.cuda.is_available():
+        device = "cuda"
+        logger.info("NVIDIA GPU (CUDA) detected. Using for acceleration.")
+    # Check for MPS (Apple Silicon on macOS)
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = "mps"
         logger.info("Apple Silicon GPU (MPS) detected. Using for acceleration.")
     else:
-        device = "cpu"
-        logger.info("MPS not found. Falling back to CPU.")
+        logger.info("No GPU acceleration available. Using CPU.")
 except ImportError:
-    device = "cpu"
     logger.warning("Torch not available; using CPU.", exc_info=True)
 except Exception:
-    device = "cpu"
     logger.warning("Error detecting device; using CPU.", exc_info=True)
 
 
