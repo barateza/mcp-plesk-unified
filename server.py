@@ -1,3 +1,17 @@
+# /// script
+# dependencies = [
+#   "fastmcp",
+#   "lancedb",
+#   "beautifulsoup4",
+#   "GitPython",
+#   "torch",
+#   "transformers",
+#   "sentence-transformers",
+#   "numpy",
+#   "pydantic"
+# ]
+# ///
+
 # ruff: noqa: E402
 import os
 import sys
