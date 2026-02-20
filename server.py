@@ -495,3 +495,13 @@ if __name__ == "__main__":
     except Exception:
         logger.critical("Server crashed", exc_info=True)
         raise
+
+
+def main() -> None:
+    """Console entrypoint for the MCP server (used by package scripts/devtools)."""
+    logger.info("Starting Plesk Unified MCP Server (entrypoint)...")
+    try:
+        mcp.run()
+    except Exception:
+        logger.critical("Server crashed (entrypoint)", exc_info=True)
+        raise

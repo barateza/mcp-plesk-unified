@@ -44,6 +44,10 @@ Repository = "https://github.com/barateza/mcp-plesk-unified.git"
 [tool.setuptools]
 py-modules = ["server"]
 
+[project.scripts]
+# Console script to run the MCP server: `plesk-unified-mcp` will call `server:main`
+plesk-unified-mcp = "server:main"
+
 [tool.black]
 line-length = 88
 target-version = ["py312", "py313"]
