@@ -65,7 +65,7 @@ from lancedb.pydantic import LanceModel
 from lancedb.embeddings import get_registry
 from lancedb.rerankers import CrossEncoderReranker
 from pydantic import Field
-from typing import Any, List
+from typing import Any, Dict, List, Optional, Tuple
 
 # Detect best device
 try:
@@ -170,7 +170,8 @@ class UnifiedSchema(LanceModel):
     breadcrumb: str
 
 
-def get_table(create_new=False):
+def get_table(create_new: bool = False) -> Any:
+    """Connect to or create the LanceDB table."""
     logger.debug("Connecting to LanceDB at %s", DB_PATH)
     db = lancedb.connect(str(DB_PATH))
     try:
@@ -188,7 +189,8 @@ def get_table(create_new=False):
 
 
 # --- Helper: Git Auto-Loader ---
-def ensure_source_exists(source):
+def ensure_source_exists(source: Dict[str, Any]) -> bool:
+    """Ensure the source repository exists and is not empty."""
     if source["path"].exists() and any(source["path"].iterdir()):
         logger.debug("Source %s already exists at %s", source["cat"], source["path"])
         return True
@@ -206,7 +208,12 @@ def ensure_source_exists(source):
 
 
 # --- TOC Parsing Logic ---
-def parse_toc_recursive(nodes, parent_path="", file_map=None):
+def parse_toc_recursive(
+    nodes: List[Dict[str, Any]],
+    parent_path: str = "",
+    file_map: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Dict[str, Dict[str, str]]:
+    """Recursively parse TOC nodes to build a file map."""
     if file_map is None:
         file_map = {}
     for node in nodes:
@@ -221,7 +228,8 @@ def parse_toc_recursive(nodes, parent_path="", file_map=None):
     return file_map
 
 
-def load_toc_map(folder_path):
+def load_toc_map(folder_path: Path) -> Dict[str, Dict[str, str]]:
+    """Load and parse a TOC map from a folder's toc.json file."""
     toc_path = folder_path / "toc.json"
     if not toc_path.exists():
         return {}
@@ -234,7 +242,11 @@ def load_toc_map(folder_path):
 
 
 # --- Content Parsers ---
-def parse_html(file_path, toc_metadata=None):
+def parse_html(
+    file_path: Path,
+    toc_metadata: Optional[Dict[str, str]] = None,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Parse an HTML file and extract title, breadcrumb, and text content."""
     try:
         html = file_path.read_text(encoding="utf-8", errors="ignore")
         soup = BeautifulSoup(html, "html.parser")
@@ -266,7 +278,8 @@ def parse_html(file_path, toc_metadata=None):
         return None, None, None
 
 
-def parse_code(file_path):
+def parse_code(file_path: Path) -> Tuple[Optional[str], str, Optional[str]]:
+    """Parse a code file and return filename, empty string, and content."""
     try:
         return (
             file_path.name,
@@ -275,7 +288,7 @@ def parse_code(file_path):
         )
     except Exception:
         logger.warning("Error parsing code file: %s", file_path.name, exc_info=True)
-        return None, None, None
+        return None, "", None
 
 
 # --- Tools ---
