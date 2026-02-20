@@ -75,7 +75,7 @@ def enrich_all_tocs():
                 continue
 
             file_path = KB_ROOT / folder / item["path"]
-            print(f"[{i+1}/{len(data['files'])}] Describing: {item['name']}")
+            print(f"[{i + 1}/{len(data['files'])}] Describing: {item['name']}")
 
             item["description"] = get_ai_description(file_path, item["name"])
 
