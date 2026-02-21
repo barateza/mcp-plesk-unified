@@ -77,7 +77,6 @@ import lancedb
 from git import Repo
 from lancedb.pydantic import LanceModel
 from lancedb.embeddings import get_registry
-from lancedb.rerankers import CrossEncoderReranker
 from pydantic import Field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -149,22 +148,6 @@ except Exception:
         logger.critical("Embedding model could not be initialized.", exc_info=True)
         raise
 
-# Reranking Model
-logger.info("Loading Reranker (BAAI/bge-reranker-base) on %s...", device)
-reranker = None
-try:
-    try:
-        reranker = CrossEncoderReranker(
-            model_name="BAAI/bge-reranker-base", device=device
-        )
-    except TypeError:
-        reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
-    logger.info("Reranker initialized successfully.")
-except Exception as e:
-    logger.warning(
-        "Reranker init failed: %s. Reranking will be skipped.", e, exc_info=True
-    )
-    reranker = None
 
 
 # Prepare vector field
@@ -309,6 +292,34 @@ def parse_code(file_path: Path) -> Tuple[Optional[str], str, Optional[str]]:
         return None, "", None
 
 
+# --- Chunking Strategies ---
+def chunk_by_lines(text: str, chunk_size: int, overlap: int = 0) -> List[str]:
+    """Chunks text by lines with overlap."""
+    lines = text.splitlines()
+    if not lines:
+        return []
+    chunks = []
+    step = max(1, chunk_size - overlap)
+    for i in range(0, len(lines), step):
+        chunk = "\n".join(lines[i : i + chunk_size])
+        if chunk.strip():
+            chunks.append(chunk)
+    return chunks
+
+
+def chunk_by_chars(text: str, chunk_size: int, overlap: int = 0) -> List[str]:
+    """Chunks text by characters with overlap."""
+    if not text:
+        return []
+    chunks = []
+    step = max(1, chunk_size - overlap)
+    for i in range(0, len(text), step):
+        chunk = text[i : i + chunk_size]
+        if chunk.strip():
+            chunks.append(chunk)
+    return chunks
+
+
 # --- Tools ---
 @mcp.tool
 def refresh_knowledge(
@@ -374,17 +385,14 @@ def refresh_knowledge(
                 source["path"].rglob("*.html")
             )
             parser: Any = parse_html
-            chunk_size = 3000
         elif source["type"] == "php":
             files = list(source["path"].rglob("*.php"))
             parser: Any = parse_code
-            chunk_size = 6000
         else:
             files = list(source["path"].rglob("*.js")) + list(
                 source["path"].rglob("*.md")
             )
             parser: Any = parse_code
-            chunk_size = 5000
 
         logger.info("Found %d files for source %s", len(files), source["cat"])
 
@@ -405,11 +413,19 @@ def refresh_knowledge(
             else:
                 title, breadcrumb, text = parser(f)
 
-            if text and len(text) > 50:
-                chunks = [
-                    text[i : i + chunk_size]
-                    for i in range(0, len(text), chunk_size - 500)
-                ]
+            chunks = []
+            if text and len(text) > 10:
+                if source["type"] == "html":
+                    # Documentation: 1500 chars, 200 overlap
+                    chunks = chunk_by_chars(text, 1500, 200)
+                elif source["type"] == "php":
+                    # PHP Stubs: 150 lines, 20 overlap
+                    chunks = chunk_by_lines(text, 150, 20)
+                else:
+                    # JS SDK: 60 lines, 10 overlap
+                    chunks = chunk_by_lines(text, 60, 10)
+
+            if chunks:
                 for chunk in chunks:
                     cat_docs.append(
                         {
@@ -464,7 +480,7 @@ def search_plesk_unified(
     ),
 ):
     """
-    Search the Unified Knowledge Base with Reranking.
+    Search the Unified Knowledge Base.
     """
     # Truncate query for logging to avoid leaking sensitive data
     safe_query = (query[:100] + "...") if len(query) > 100 else query
@@ -477,18 +493,7 @@ def search_plesk_unified(
     if category:
         search_op = search_op.where(f"category = '{category}'")
 
-    logger.debug("Executing vector search + reranking...")
-
-    # 2. Reranking
-    if reranker is not None:
-        try:
-            results = search_op.rerank(reranker=reranker).limit(5).to_list()
-        except Exception:
-            logger.error("Reranking failed during search", exc_info=True)
-            results = search_op.limit(5).to_list()
-    else:
-        logger.warning("Reranker unavailable; using vector search only.")
-        results = search_op.limit(5).to_list()
+    results = search_op.limit(5).to_list()
 
     logger.info("Search returned %d results.", len(results))
     if results:
