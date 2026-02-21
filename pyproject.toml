@@ -105,6 +105,10 @@ known_first_party = ["knowledge_base", "plesk_unified"]
 
 [tool.ruff]
 line-length = 88
+# Core runtime settings remain at top-level. Linter-specific selection
+# options live under the `lint` table per ruff newer config layout.
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "C90", "TC", "B", "B9"]
 extend-ignore = ["E203"]
 extend-select = []
