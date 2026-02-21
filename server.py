@@ -477,27 +477,36 @@ def search_plesk_unified(
 
     table = get_table()
 
-    # 1. Busca Rápida
-    search_op = table.search(query).limit(25)
+    # Perform the search (no hard-coded pre-limit to allow provider to optimize)
+    search_op = table.search(query)
     if category:
         search_op = search_op.where(f"category = '{category}'")
 
     results = search_op.limit(5).to_list()
 
     logger.info("Search returned %d results.", len(results))
-    if results:
-        logger.info("Top result score: %.4f", results[0].get("_relevance_score", 0.0))
 
-    return "\n".join(
-        [
-            f"=== {r['category'].upper()} | {r['title']} ===\n"
-            f"Path: {r['breadcrumb']}\n"
-            f"File: {r['filename']}\n"
-            f"Relevance Score: {r['_relevance_score']:.4f}\n\n"
-            f"{r['text']}\n"
-            for r in results
-        ]
-    )
+    formatted_results = []
+    for r in results:
+        # LanceDB returns `_distance` for vector search and `_score` for FTS.
+        # Use .get() to avoid KeyError if the backend changes.
+        score = (
+            r.get("_distance")
+            if r.get("_distance") is not None
+            else r.get("_score", 0.0)
+        )
+
+        formatted_results.append(
+            (
+                f"=== {r['category'].upper()} | {r['title']} ===\n"
+                f"Path: {r.get('breadcrumb', '')}\n"
+                f"File: {r.get('filename', '')}\n"
+                f"Score/Distance: {score:.4f}\n\n"
+                f"{r.get('text', '')}\n"
+            )
+        )
+
+    return "\n".join(formatted_results)
 
 
 if __name__ == "__main__":
