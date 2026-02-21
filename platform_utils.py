@@ -7,15 +7,13 @@ Provides cross-platform support for:
 - Linux: CUDA or CPU fallback
 """
 
+import logging
 import os
 import platform
 import sys
-import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 # Lazy import for torch to avoid heavy import at module level
-if TYPE_CHECKING:
-    pass
 
 _torch: Optional[Any] = None
 

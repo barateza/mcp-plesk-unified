@@ -97,3 +97,14 @@ torchvision = [
 torchaudio = [
   { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
 ]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["knowledge_base", "plesk_unified"]
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "C90", "TC", "B", "B9"]
+extend-ignore = ["E203"]
+extend-select = []

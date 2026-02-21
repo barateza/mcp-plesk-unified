@@ -1,8 +1,9 @@
 import json
 import os
 import time
-import requests
 from pathlib import Path
+
+import requests
 
 # --- Configuration ---
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")

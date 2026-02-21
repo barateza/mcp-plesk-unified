@@ -12,13 +12,14 @@
 # ]
 # ///
 
+import json
+import logging
+
 # ruff: noqa: E402
 import os
 import sys
-import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-import json
 
 # --- LOGGING SETUP ---
 # Must be done before importing heavy libraries to capture their init warnings if needed.
@@ -71,14 +72,15 @@ logger.info(f"Logging initialized. Level: {LOG_LEVEL_NAME}, File: {LOG_FILE}")
 os.environ["TQDM_DISABLE"] = "1"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-from fastmcp import FastMCP
-from bs4 import BeautifulSoup
-import lancedb  # type: ignore
-from git import Repo
-from lancedb.pydantic import LanceModel, Vector  # type: ignore
-from lancedb.embeddings import get_registry  # type: ignore
-from pydantic import Field
 from typing import Any, Dict, List, Optional, Tuple
+
+import lancedb  # type: ignore
+from bs4 import BeautifulSoup
+from fastmcp import FastMCP
+from git import Repo
+from lancedb.embeddings import get_registry  # type: ignore
+from lancedb.pydantic import LanceModel, Vector  # type: ignore
+from pydantic import Field
 
 # Detect best device
 # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
