@@ -10,16 +10,21 @@ Be respectful and constructive in all interactions. We're committed to providing
 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
+
    ```bash
    git clone https://github.com/barateza/mcp-plesk-unified.git
    cd mcp-plesk-unified
    ```
+
 3. **Create a virtual environment**:
+
    ```bash
    python -m venv .venv
    source .venv/bin/activate
    ```
+
 4. **Install development dependencies**:
+
    ```bash
    pip install -e .
    ```
@@ -27,6 +32,7 @@ Be respectful and constructive in all interactions. We're committed to providing
 ## Making Changes
 
 1. **Create a feature branch**:
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
@@ -34,11 +40,13 @@ Be respectful and constructive in all interactions. We're committed to providing
 2. **Make your changes** following the style guide below
 
 3. **Test your changes**:
+
    ```bash
    python server.py  # Verify the server starts correctly
    ```
 
 4. **Commit with clear messages**:
+
    ```bash
    git commit -m "feat: add support for X" -m "Detailed explanation of changes"
    ```
@@ -58,6 +66,7 @@ Be respectful and constructive in all interactions. We're committed to providing
 - Follow [PEP 8](https://pep8.org/) style guidelines
 - Use meaningful variable and function names
 - Add docstrings to functions and classes:
+
   ```python
   def search_knowledge_base(query: str, max_results: int = 10) -> list[dict]:
       """
@@ -71,6 +80,7 @@ Be respectful and constructive in all interactions. We're committed to providing
           List of documentation entries matching the query
       """
   ```
+
 - Keep lines under 100 characters when reasonable
 - Use type hints for function arguments and return values
 
@@ -84,6 +94,7 @@ Be respectful and constructive in all interactions. We're committed to providing
 ## Submitting Changes
 
 1. **Push to your fork**:
+
    ```bash
    git push origin feature/your-feature-name
    ```
@@ -112,6 +123,7 @@ Before submitting a PR, ensure:
 ### Bug Reports
 
 Include:
+
 - Clear, descriptive title
 - Steps to reproduce
 - Expected behavior
@@ -123,6 +135,7 @@ Include:
 ### Feature Requests
 
 Include:
+
 - Clear description of the feature
 - Use cases and benefits
 - Possible implementation approach (if you have ideas)
@@ -137,8 +150,25 @@ Include:
 ## Recognition
 
 Contributors will be recognized in:
+
 - Git commit history
 - Release notes for significant contributions
 - README contributors section (if implemented)
 
 Thank you for helping make Plesk Unified better! 🙏
+
+## Pre-commit Hooks (Formatting & Linting)
+
+We use `pre-commit` to run formatters and linters automatically on each commit.
+
+Install and enable hooks locally:
+
+```bash
+python -m pip install --upgrade pre-commit
+pre-commit install
+pre-commit run --all-files  # optional: verify everything passes
+```
+
+The hooks include `ruff` (lint + auto-fix), `isort` (import sorting), and
+`black` (code formatting). If a hook modifies files, re-run `git add` and
+commit again.

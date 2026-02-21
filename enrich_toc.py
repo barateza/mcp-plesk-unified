@@ -1,8 +1,9 @@
 import json
 import os
 import time
-import requests
 from pathlib import Path
+
+import requests
 
 # --- Configuration ---
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -36,7 +37,12 @@ def get_ai_description(file_path, file_name):
                         "messages": [
                             {
                                 "role": "user",
-                                "content": f"Summarize the technical purpose of the Plesk file '{file_name}' in exactly one concise sentence.\n\n{content}",
+                                "content": (
+                                    "Summarize the technical purpose of the Plesk file "
+                                    f"'{file_name}' "
+                                    "in exactly one concise sentence.\n\n"
+                                    f"{content}"
+                                ),
                             }
                         ],
                         "max_tokens": 100,

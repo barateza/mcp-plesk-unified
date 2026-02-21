@@ -12,16 +12,18 @@
 # ]
 # ///
 
+import json
+import logging
+
 # ruff: noqa: E402
 import os
 import sys
-import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-import json
 
 # --- LOGGING SETUP ---
-# Must be done before importing heavy libraries to capture their init warnings if needed.
+# Must be done before importing heavy libraries.
+# This ensures we capture their initialization warnings if needed.
 BASE_DIR = Path(__file__).parent
 LOG_DIR = BASE_DIR / "storage" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,14 +73,15 @@ logger.info(f"Logging initialized. Level: {LOG_LEVEL_NAME}, File: {LOG_FILE}")
 os.environ["TQDM_DISABLE"] = "1"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-from fastmcp import FastMCP
-from bs4 import BeautifulSoup
-import lancedb  # type: ignore
-from git import Repo
-from lancedb.pydantic import LanceModel, Vector  # type: ignore
-from lancedb.embeddings import get_registry  # type: ignore
-from pydantic import Field
 from typing import Any, Dict, List, Optional, Tuple
+
+import lancedb  # type: ignore
+from bs4 import BeautifulSoup
+from fastmcp import FastMCP
+from git import Repo
+from lancedb.embeddings import get_registry  # type: ignore
+from lancedb.pydantic import LanceModel, Vector  # type: ignore
+from pydantic import Field
 
 # Detect best device
 # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
@@ -311,14 +314,20 @@ def chunk_by_chars(text: str, chunk_size: int, overlap: int = 0) -> List[str]:
 
 # --- Tools ---
 @mcp.tool
-def refresh_knowledge(
+def refresh_knowledge(  # noqa: C901
     target_category: str = Field(
         "all",
-        description="Category to index. Choose one: 'guide', 'cli', 'api', 'php-stubs', 'js-sdk' or 'all'.",
+        description=(
+            "Category to index. Choose one: 'guide', 'cli', 'api', 'php-stubs', "
+            "'js-sdk' or 'all'."
+        ),
     ),
     reset_db: bool = Field(
         False,
-        description="Set to True ONLY for the first run to wipe the database. Default is False (resume).",
+        description=(
+            "Set to True ONLY for the first run to wipe the database. "
+            "Default is False (resume)."
+        ),
     ),
 ):
     """

@@ -1,81 +1,132 @@
-import os
-import requests
-import zipfile
 import json
+import os
 import shutil
+import zipfile
+from datetime import datetime
 from pathlib import Path
+
+import requests
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
-from datetime import datetime
 
 # --- CONFIGURATION ---
 
-# 1. AI Provider Settings
+# 1. AI Settings
 USE_LOCAL_LLM = True
 
-# LM Studio Configuration
-# Note: LM Studio usually processes requests regardless of the 'model' string
-# as long as a model is loaded in the GUI.
+# LM Studio / Ollama Configuration
 LOCAL_API_URL = "http://localhost:1234/v1"
 LOCAL_MODEL_ID = "llama-3.1-8b-instruct"
 
-# Fallback to OpenRouter if local fails or is disabled
+# Fallback to OpenRouter
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = "liquid/lfm-2.5-1.2b-thinking:free"
 
-# 2. Storage Paths
+# 2. Storage Paths (Staging Area)
+# Files will be processed here. You can move 'md' folders to 'knowledge_base' later.
 BASE_STORAGE_DIR = Path("storage")
 
 # 3. Documentation Sources
-# Add any other Plesk zip URLs here. The script handles them all.
 GUIDES = {
     "extensions-guide": "https://docs.plesk.com/en-US/obsidian/zip/extensions-guide.zip",
     "cli-linux": "https://docs.plesk.com/en-US/obsidian/zip/cli-linux.zip",
     "api-rpc": "https://docs.plesk.com/en-US/obsidian/zip/api-rpc.zip",
-    "rest-api": "https://docs.plesk.com/en-US/obsidian/zip/rest-api.zip",
+    # Add more guides here as needed
 }
 
 # --- AI HELPERS ---
 
 
-def generate_description(filename, content_snippet):
-    """Generates a one-liner description using the selected provider."""
-    # Context prompt designed for Llama 3.1
+def clean_llm_response(text):
+    """Trim conversational filler from LLM output and return a concise summary."""
+    text = text.strip().strip('"').strip("'")
+
+    # Common conversational prefixes to strip
+    garbage_prefixes = [
+        "Here is a concise sentence summarizing",
+        "Here is a concise sentence",
+        "Here is a summary",
+        "The technical purpose of the file is to",
+        "The technical purpose of the file",
+        "The technical purpose of this file",
+        "In this section, the documentation",
+        "This section",
+        "concise sentence:",
+        "Summary:",
+        "Description:",
+    ]
+
+    # 1. Strip known prefixes (case-insensitive check)
+    for prefix in garbage_prefixes:
+        if text.lower().startswith(prefix.lower()):
+            # If there's a colon, split on it (e.g. "Summary: Explains...")
+            if ":" in text:
+                parts = text.split(":", 1)
+                if len(parts) > 1:
+                    text = parts[1]
+            else:
+                # Otherwise just slice off the prefix
+                text = text[len(prefix) :]
+
+    # 2. Secondary cleanup
+    text = text.strip()
+
+    # 3. Handle "titled 'Name'" artifacts
+    # e.g. "titled 'Meta XML': Defines the structure..."
+    if text.lower().startswith("titled"):
+        if ":" in text:
+            text = text.split(":", 1)[1]
+
+    return text.strip()
+
+
+def generate_description(filename, section_title, content_snippet):
+    """Generates a specific description for a section."""
+
+    # Strict prompt to force directness
     prompt = (
-        f"You are a technical documentation assistant. "
-        f"Summarize the technical purpose of the file '{filename}' in exactly one concise sentence. "
-        f"Do not use introductory phrases like 'This file contains'. Just state the purpose directly.\n\n"
-        f"File Content Snippet:\n{content_snippet[:3000]}"
+        "You are a technical indexer.\n"
+        f"Context: The file '{filename}' contains documentation for Plesk Extensions.\n"
+        "Task: Write exactly one concise sentence summarizing the specific section "
+        f"titled '{section_title}'.\n"
+        "Rules:\n"
+        "1. Start directly with a verb (e.g., 'Explains', 'Defines', 'Configures').\n"
+        "2. Do NOT say 'Here is a summary'.\n"
+        "3. Do NOT mention the filename.\n"
+        "4. Focus ONLY on the section.\n\n"
+        "Content Snippet:\n" + content_snippet[:3500]
     )
 
     messages = [
         {
             "role": "system",
-            "content": "You are a helpful technical assistant. You provide concise, one-sentence summaries.",
+            "content": (
+                "You are a precise technical documenter. Output only the summary."
+            ),
         },
         {"role": "user", "content": prompt},
     ]
 
     try:
         if USE_LOCAL_LLM:
-            # LM Studio / Ollama Request
             resp = requests.post(
                 f"{LOCAL_API_URL}/chat/completions",
                 json={
                     "model": LOCAL_MODEL_ID,
                     "messages": messages,
-                    "temperature": 0.3,  # Low temp for factual accuracy
-                    "max_tokens": 100,
+                    "temperature": 0.1,
+                    "max_tokens": 80,
                     "stream": False,
                 },
-                timeout=60,  # Llama 3.1 8B might take a few seconds on first load
+                timeout=60,
             )
             if resp.status_code != 200:
                 print(f"[!] Local LLM Error: {resp.text}")
                 return ""
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            raw_text = resp.json()["choices"][0]["message"]["content"]
+            return clean_llm_response(raw_text)
         else:
-            # OpenRouter Request
+            # OpenRouter
             resp = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
@@ -90,10 +141,9 @@ def generate_description(filename, content_snippet):
                 timeout=15,
             )
             if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"].strip()
-            else:
-                print(f"[!] OpenRouter Error: {resp.text}")
-                return ""
+                raw_text = resp.json()["choices"][0]["message"]["content"]
+                return clean_llm_response(raw_text)
+            return ""
     except Exception as e:
         print(f"[!] AI Generation Exception: {e}")
         return ""
@@ -118,16 +168,13 @@ class GuideManager:
         }
 
     def needs_update(self):
-        """Checks Last-Modified header against local metadata."""
         try:
             head = requests.head(self.url, timeout=10)
             remote_mod = head.headers.get("Last-Modified")
 
-            # If we've never downloaded it, we need it.
             if not self.paths["zip"].exists() or not self.paths["meta"].exists():
                 return True, remote_mod
 
-            # If we have it, check if the remote date changed
             with open(self.paths["meta"], "r") as f:
                 local_meta = json.load(f)
                 if local_meta.get("last_modified") != remote_mod:
@@ -136,11 +183,32 @@ class GuideManager:
             return False, remote_mod
         except Exception as e:
             print(f"[!] Network warning for {self.name}: {e}")
-            # If network fails but we have files, assume we are good for now
             return not self.paths["zip"].exists(), None
 
+    def flatten_html_directory(self):
+        """Moves files up if they were extracted into a nested subfolder."""
+        found_toc = list(self.dirs["html"].rglob("toc.json"))
+        if not found_toc:
+            return
+
+        toc_location = found_toc[0]
+        # If TOC is not in the root html dir, we need to flatten
+        if toc_location.parent != self.dirs["html"]:
+            print("[-] Flattening nested directory structure...")
+            nested_root = toc_location.parent
+
+            for item in nested_root.iterdir():
+                destination = self.dirs["html"] / item.name
+                if destination.exists():
+                    if destination.is_dir():
+                        shutil.rmtree(destination)
+                    else:
+                        destination.unlink()
+                shutil.move(str(item), str(self.dirs["html"]))
+
+            shutil.rmtree(nested_root)
+
     def download_and_extract(self, remote_mod):
-        """Downloads and unzips the guide."""
         print(f"[-] Downloading {self.name}...")
         self.root.mkdir(parents=True, exist_ok=True)
         self.dirs["html"].mkdir(parents=True, exist_ok=True)
@@ -157,7 +225,6 @@ class GuideManager:
 
         print(f"[-] Extracting {self.name}...")
         try:
-            # Clean old HTML to prevent orphans
             if self.dirs["html"].exists():
                 shutil.rmtree(self.dirs["html"])
             self.dirs["html"].mkdir()
@@ -168,10 +235,15 @@ class GuideManager:
             print(f"[!] Extraction failed: {e}")
             return False
 
-        # Move TOC to root if it exists inside html
+        # Fix nested folders
+        self.flatten_html_directory()
+
+        # Move TOC to root
         extracted_toc = self.dirs["html"] / "toc.json"
         if extracted_toc.exists():
             shutil.move(str(extracted_toc), str(self.paths["toc"]))
+        else:
+            print("[!] WARNING: toc.json still not found after extraction.")
 
         with open(self.paths["meta"], "w") as f:
             json.dump(
@@ -180,8 +252,7 @@ class GuideManager:
 
         return True
 
-    def enrich_toc(self):
-        """Iterates TOC and adds AI descriptions if missing."""
+    def enrich_toc(self):  # noqa: C901
         if not self.paths["toc"].exists():
             print(f"[!] No toc.json found for {self.name}. Skipping enrichment.")
             return
@@ -192,17 +263,22 @@ class GuideManager:
 
         updated_count = 0
 
-        # We use a recursive function to traverse the TOC tree
         def process_nodes_recursively(nodes):
             nonlocal updated_count
             for node in nodes:
-                # Logic: Is it a file? (.htm) AND Does it lack a description?
-                if (
-                    "url" in node
-                    and ".htm" in node["url"]
-                    and not node.get("description")
-                ):
+                # Check if description is missing OR looks "chatty"
+                # (contains "concise sentence")
+                needs_gen = False
+                desc = node.get("description", "")
+
+                if not desc:
+                    needs_gen = True
+                elif "concise sentence" in desc or "Here is a summary" in desc:
+                    needs_gen = True  # Re-generate bad descriptions
+
+                if "url" in node and ".htm" in node["url"] and needs_gen:
                     filename = node["url"].split("#")[0]
+                    section_title = node.get("text", "this section")
                     file_path = self.dirs["html"] / filename
 
                     if file_path.exists():
@@ -211,17 +287,20 @@ class GuideManager:
                                 file_path, "r", encoding="utf-8", errors="ignore"
                             ) as f:
                                 text = f.read()
-                                # Lightweight strip to save tokens
                                 text_clean = BeautifulSoup(
                                     text, "html.parser"
                                 ).get_text()
 
-                            print(f"    > Generating summary for: {filename}")
-                            desc = generate_description(filename, text_clean)
-                            if desc:
-                                node["description"] = desc
+                            print(f"    > Generating summary for: '{section_title}'")
+
+                            new_desc = generate_description(
+                                filename, section_title, text_clean
+                            )
+
+                            if new_desc:
+                                node["description"] = new_desc
                                 updated_count += 1
-                                # Save incrementally in case of crash
+                                # Incremental save
                                 if updated_count % 5 == 0:
                                     with open(
                                         self.paths["toc"], "w", encoding="utf-8"
@@ -238,12 +317,11 @@ class GuideManager:
         if updated_count > 0:
             with open(self.paths["toc"], "w", encoding="utf-8") as f:
                 json.dump(toc, f, indent=2)
-            print(f"[+] Added {updated_count} new descriptions.")
+            print(f"[+] Updated {updated_count} descriptions.")
         else:
             print("[-] No new descriptions needed.")
 
-    def convert_to_markdown(self):
-        """Converts HTML to Markdown using TOC structure."""
+    def convert_to_markdown(self):  # noqa: C901
         if not self.paths["toc"].exists():
             return
 
@@ -266,7 +344,6 @@ class GuideManager:
                             with open(html_path, "r", encoding="utf-8") as f:
                                 soup = BeautifulSoup(f.read(), "html.parser")
 
-                            # Clean HTML (Remove sidebar, footer, search)
                             main = soup.find("div", {"class": "document"}) or soup.find(
                                 "body"
                             )
@@ -277,19 +354,16 @@ class GuideManager:
                                 ):
                                     junk.decompose()
 
-                                # Convert to Markdown
                                 md_text = md(
                                     str(main), heading_style="ATX", code_language="php"
                                 )
 
-                                # Add Header & AI Metadata
                                 header = f"# {node.get('text', 'Untitled')}\n\n"
                                 if node.get("description"):
                                     header += (
                                         f"> **AI Summary:** {node['description']}\n\n"
                                     )
 
-                                # Save
                                 out_path = self.dirs["md"] / filename.replace(
                                     ".htm", ".md"
                                 )
@@ -311,17 +385,12 @@ class GuideManager:
 # --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
-    # Check if Local LLM or OpenRouter is ready
     if USE_LOCAL_LLM:
         try:
             requests.get(f"{LOCAL_API_URL}/models", timeout=2)
             print("[+] Connected to Local LLM (LM Studio)")
         except Exception:
-            print(
-                "[!] Warning: Could not connect to LM Studio. Make sure 'Start Server' is clicked."
-            )
-            if not OPENROUTER_KEY:
-                print("    Aborting AI enrichment (No OpenRouter key found).")
+            print("[!] Warning: Could not connect to LM Studio.")
 
     for name, url in GUIDES.items():
         print(f"\n=== Processing Guide: {name} ===")
@@ -329,15 +398,20 @@ if __name__ == "__main__":
 
         # 1. Sync
         should_update, remote_mod = mgr.needs_update()
-        if should_update:
+
+        # Force re-download if TOC is missing (Fixes previous nested folder issues)
+        if not should_update and not mgr.paths["toc"].exists():
+            print("[-] TOC missing. Forcing re-download to fix structure...")
+            mgr.download_and_extract(remote_mod)
+        elif should_update:
             if remote_mod:
                 print(f"[-] Update available (Remote: {remote_mod})")
             mgr.download_and_extract(remote_mod)
         else:
             print("[-] Local cache is up to date.")
 
-        # 2. Enrich (Runs on every execution to catch missing summaries)
+        # 2. Enrich (Regenerates descriptions if they look "chatty")
         mgr.enrich_toc()
 
-        # 3. Convert (Runs on every execution to bake in new summaries)
+        # 3. Convert
         mgr.convert_to_markdown()

@@ -62,7 +62,7 @@ pip install -e .
 The server automatically detects and uses GPU acceleration when available:
 
 | Platform | GPU Type | Acceleration |
-|----------|----------|---------------|
+| -------- | -------- | ------------ |
 | macOS M1/M2/M3 | Apple Silicon MPS | ✅ Automatic |
 | Windows + NVIDIA | CUDA | ✅ Automatic |
 | Linux + NVIDIA | CUDA | ✅ Automatic |
@@ -73,6 +73,7 @@ The server automatically detects and uses GPU acceleration when available:
 The default `sentence-transformers` includes CPU-only PyTorch. For GPU acceleration, install PyTorch with CUDA from the official source:
 
 **macOS (Apple Silicon):**
+
 ```bash
 # Install PyTorch with Apple Silicon support
 pip install torch
@@ -81,6 +82,7 @@ uv pip install torch
 ```
 
 **Windows/Linux (NVIDIA CUDA):**
+
 ```bash
 # Install PyTorch with CUDA 12.4 (latest stable)
 pip install torch --index-url https://download.pytorch.org/whl/cu124
@@ -111,7 +113,7 @@ FORCE_DEVICE=cpu python server.py
 MCP clients (Claude Desktop, Cursor, etc.) enforce strict request timeouts (~60 seconds). On first use, the server must download two AI models totalling ~1.8 GB:
 
 | Model | Size | Purpose |
-|-------|------|---------|
+| ----- | ---- | ------- |
 | `BAAI/bge-m3` | ~1.5 GB | Semantic embeddings |
 | `BAAI/bge-reranker-base` | ~300 MB | Cross-encoder reranking |
 
@@ -122,6 +124,7 @@ python main.py
 ```
 
 Sample output:
+
 ```
   mcp-plesk-unified — Model Warm-Up
 
@@ -143,6 +146,7 @@ python server.py
 ```
 
 The server will:
+
 1. ✅ Download Plesk documentation sources
 2. ✅ Parse HTML, PHP, and JavaScript files
 3. ✅ Generate semantic embeddings (using cached models)
@@ -281,6 +285,22 @@ plesk-unified/
     └── lancedb/         # Vector database
 ```
 
+## Naming conventions
+
+This repository follows a simple naming policy for user-facing files and documentation:
+
+- Use kebab-case for documentation filenames and public assets (e.g., `getting-started.md`, `extension-sdk-features.md`).
+- Keep code/module names in their language-native form (Python: snake_case, JS: camelCase or as-is). Do not rename Python modules or package directories to kebab-case.
+- Excluded paths (do not rename): `storage/lancedb`, `knowledge_base/stubs`, and `plesk_unified.egg-info`.
+
+When renaming files, update any internal links (TOC, README, and other markdown files) to point to the new kebab-case names. Run formatters and linters after applying changes:
+
+```bash
+# Fix Python formatting and linting
+ruff check . --fix
+black .
+```
+
 ## 🚧 Development
 
 ### Setting Up Development Environment
@@ -339,6 +359,7 @@ Ensure you have internet connectivity and sufficient disk space (~1GB for models
 ### LanceDB connection issues
 
 Try deleting the storage directory and reinitializing:
+
 ```bash
 rm -rf storage/
 python server.py
