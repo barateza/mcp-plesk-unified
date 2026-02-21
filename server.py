@@ -82,6 +82,7 @@ from git import Repo
 from lancedb.embeddings import get_registry  # type: ignore
 from lancedb.pydantic import LanceModel, Vector  # type: ignore
 from pydantic import Field
+from plesk_unified import html_utils, chunking
 
 # Detect best device
 # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
@@ -382,7 +383,7 @@ def refresh_knowledge(  # noqa: C901
             files = list(source["path"].rglob("*.htm")) + list(
                 source["path"].rglob("*.html")
             )
-            parser: Any = parse_html
+            parser: Any = html_utils.parse_html_file
         elif source["type"] == "php":
             files = list(source["path"].rglob("*.php"))
             parser: Any = parse_code
@@ -415,25 +416,28 @@ def refresh_knowledge(  # noqa: C901
             if text and len(text) > 10:
                 if source["type"] == "html":
                     # Documentation: 1500 chars, 200 overlap
-                    chunks = chunk_by_chars(text, 1500, 200)
+                    chunks = chunking.chunk_by_chars(text, 1500, 200)
                 elif source["type"] == "php":
                     # PHP Stubs: 150 lines, 20 overlap
-                    chunks = chunk_by_lines(text, 150, 20)
+                    chunks = chunking.chunk_by_lines(text, 150, 20)
                 else:
                     # JS SDK: 60 lines, 10 overlap
-                    chunks = chunk_by_lines(text, 60, 10)
+                    chunks = chunking.chunk_by_lines(text, 60, 10)
 
             if chunks:
-                for chunk in chunks:
-                    cat_docs.append(
-                        {
-                            "text": f"[{source['cat'].upper()}] {title}\n---\n{chunk}",
-                            "title": title,
-                            "filename": f.name,
-                            "category": source["cat"],
-                            "breadcrumb": breadcrumb,
-                        }
-                    )
+                records = chunking.build_doc_records(
+                    f.name,
+                    chunks,
+                    {
+                        "title": title,
+                        "category": source["cat"],
+                        "breadcrumb": breadcrumb,
+                    },
+                )
+                # Preserve legacy text prefix used previously
+                for r in records:
+                    r["text"] = f"[{source['cat'].upper()}] {title}\n---\n{r['text']}"
+                cat_docs.extend(records)
 
             files_processed_count += 1
 
@@ -445,7 +449,7 @@ def refresh_knowledge(  # noqa: C901
                         source["cat"],
                     )
                     try:
-                        table.add(cat_docs)
+                        chunking.persist_batch(table, cat_docs)
                         cat_docs = []
                     except Exception:
                         logger.exception("Failed to add batch to LanceDB")
@@ -458,7 +462,7 @@ def refresh_knowledge(  # noqa: C901
                 source["cat"],
             )
             try:
-                table.add(cat_docs)
+                chunking.persist_batch(table, cat_docs)
             except Exception:
                 logger.exception("Failed to add final batch to LanceDB")
 

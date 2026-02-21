@@ -125,7 +125,7 @@ python main.py
 
 Sample output:
 
-```
+``` text
   mcp-plesk-unified — Model Warm-Up
 
 Downloading and caching AI models...
@@ -173,7 +173,7 @@ Then query: "How do I add a button to the Plesk admin panel?" and receive contex
 ## 🏗️ Architecture
 
 | Component | Technology | Purpose |
-|-----------|-----------|---------|
+| --------- | ---------- | ------- |
 | **Embeddings** | BAAI/bge-m3 | Multilingual, bidirectional semantic embeddings |
 | **Reranker** | BAAI/bge-reranker-base | Cross-encoder for ranking retrieval results |
 | **Vector DB** | LanceDB | Apache Arrow-based vector storage |
@@ -268,7 +268,7 @@ reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
 ## 🗂️ Project Structure
 
-```
+```text
 plesk-unified/
 ├── server.py              # Main MCP server implementation
 ├── main.py               # Warm-up script — run once before registering with MCP clients
@@ -354,7 +354,7 @@ Contributions are welcome! Please consider:
 
 ### Models not downloading
 
-Ensure you have internet connectivity and sufficient disk space (~1GB for models).
+Ensure you have internet connectivity and sufficient disk space (~2GB for models).
 
 ### LanceDB connection issues
 
@@ -393,4 +393,4 @@ For issues or questions:
 
 ---
 
-**Built with ❤️ for the Plesk community**
+## **Built with ❤️ for the Plesk community**
