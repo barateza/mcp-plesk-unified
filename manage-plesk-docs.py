@@ -152,6 +152,63 @@ def generate_description(filename, section_title, content_snippet):
 # --- CORE LOGIC ---
 
 
+def process_toc_nodes(nodes, action):
+    """
+    Recursively processes a list of TOC nodes.
+    Calls `action(node)` on each, propagating True if action returned True.
+    """
+    updated_count = 0
+    for node in nodes:
+        if action(node):
+            updated_count += 1
+        if "children" in node:
+            updated_count += process_toc_nodes(node["children"], action)
+    return updated_count
+
+
+def node_needs_description(node):
+    """Checks if a node lacks a description or has a chatty one."""
+    desc = node.get("description", "")
+    if not desc:
+        return True
+    if "concise sentence" in desc or "Here is a summary" in desc:
+        return True
+    return False
+
+
+def generate_node_description(node, html_dir):
+    """Read HTML and generate an AI summary for a single node.
+    Returns True if updated.
+    """
+    if not node_needs_description(node):
+        return False
+    if "url" not in node or ".htm" not in node["url"]:
+        return False
+
+    filename = node["url"].split("#")[0]
+    section_title = node.get("text", "this section")
+    file_path = html_dir / filename
+
+    if not file_path.exists():
+        return False
+
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+            text_clean = BeautifulSoup(text, "html.parser").get_text()
+
+        print(f"    > Generating summary for: '{section_title}'")
+        new_desc = generate_description(filename, section_title, text_clean)
+
+        if new_desc:
+            node["description"] = new_desc
+            return True
+    except Exception as e:
+        print(f"    ! Error processing {filename}: {e}")
+
+    return False
+
+
 class GuideManager:
     def __init__(self, name, url):
         self.name = name
@@ -252,7 +309,7 @@ class GuideManager:
 
         return True
 
-    def enrich_toc(self):  # noqa: C901
+    def enrich_toc(self):
         if not self.paths["toc"].exists():
             print(f"[!] No toc.json found for {self.name}. Skipping enrichment.")
             return
@@ -261,58 +318,25 @@ class GuideManager:
         with open(self.paths["toc"], "r", encoding="utf-8") as f:
             toc = json.load(f)
 
-        updated_count = 0
+        # We need to maintain state for incremental saves, so wrap action
+        class EncrichAction:
+            def __init__(self, html_dir, toc_path, full_toc):
+                self.html_dir = html_dir
+                self.toc_path = toc_path
+                self.full_toc = full_toc
+                self.internal_count = 0
 
-        def process_nodes_recursively(nodes):
-            nonlocal updated_count
-            for node in nodes:
-                # Check if description is missing OR looks "chatty"
-                # (contains "concise sentence")
-                needs_gen = False
-                desc = node.get("description", "")
+            def __call__(self, node):
+                updated = generate_node_description(node, self.html_dir)
+                if updated:
+                    self.internal_count += 1
+                    if self.internal_count % 5 == 0:
+                        with open(self.toc_path, "w", encoding="utf-8") as f_save:
+                            json.dump(self.full_toc, f_save, indent=2)
+                return updated
 
-                if not desc:
-                    needs_gen = True
-                elif "concise sentence" in desc or "Here is a summary" in desc:
-                    needs_gen = True  # Re-generate bad descriptions
-
-                if "url" in node and ".htm" in node["url"] and needs_gen:
-                    filename = node["url"].split("#")[0]
-                    section_title = node.get("text", "this section")
-                    file_path = self.dirs["html"] / filename
-
-                    if file_path.exists():
-                        try:
-                            with open(
-                                file_path, "r", encoding="utf-8", errors="ignore"
-                            ) as f:
-                                text = f.read()
-                                text_clean = BeautifulSoup(
-                                    text, "html.parser"
-                                ).get_text()
-
-                            print(f"    > Generating summary for: '{section_title}'")
-
-                            new_desc = generate_description(
-                                filename, section_title, text_clean
-                            )
-
-                            if new_desc:
-                                node["description"] = new_desc
-                                updated_count += 1
-                                # Incremental save
-                                if updated_count % 5 == 0:
-                                    with open(
-                                        self.paths["toc"], "w", encoding="utf-8"
-                                    ) as f_save:
-                                        json.dump(toc, f_save, indent=2)
-                        except Exception as e:
-                            print(f"    ! Error processing {filename}: {e}")
-
-                if "children" in node:
-                    process_nodes_recursively(node["children"])
-
-        process_nodes_recursively(toc)
+        action = EncrichAction(self.dirs["html"], self.paths["toc"], toc)
+        updated_count = process_toc_nodes(toc, action)
 
         if updated_count > 0:
             with open(self.paths["toc"], "w", encoding="utf-8") as f:
@@ -321,7 +345,7 @@ class GuideManager:
         else:
             print("[-] No new descriptions needed.")
 
-    def convert_to_markdown(self):  # noqa: C901
+    def convert_to_markdown(self):
         if not self.paths["toc"].exists():
             return
 
@@ -333,53 +357,63 @@ class GuideManager:
 
         processed_files = set()
 
-        def process_nodes_recursively(nodes):
-            for node in nodes:
-                if "url" in node and ".htm" in node["url"]:
-                    filename = node["url"].split("#")[0]
-                    html_path = self.dirs["html"] / filename
+        class ConvertAction:
+            def __init__(self, html_dir, md_dir, processed):
+                self.html_dir = html_dir
+                self.md_dir = md_dir
+                self.processed = processed
 
-                    if filename not in processed_files and html_path.exists():
-                        try:
-                            with open(html_path, "r", encoding="utf-8") as f:
-                                soup = BeautifulSoup(f.read(), "html.parser")
+            def __call__(self, node):
+                if "url" not in node or ".htm" not in node["url"]:
+                    return False
 
-                            main = soup.find("div", {"class": "document"}) or soup.find(
-                                "body"
-                            )
-                            if main:
-                                for junk in main.find_all(
-                                    ["div", "nav"],
-                                    {"class": ["sphinxsidebar", "related", "footer"]},
-                                ):
-                                    junk.decompose()
+                filename = node["url"].split("#")[0]
+                html_path = self.html_dir / filename
 
-                                md_text = md(
-                                    str(main), heading_style="ATX", code_language="php"
-                                )
+                if filename in self.processed or not html_path.exists():
+                    return False
 
-                                header = f"# {node.get('text', 'Untitled')}\n\n"
-                                if node.get("description"):
-                                    header += (
-                                        f"> **AI Summary:** {node['description']}\n\n"
-                                    )
+                out_path = self.md_dir / filename.replace(".htm", ".md")
+                success = convert_html_to_markdown(filename, html_path, out_path, node)
+                if success:
+                    self.processed.add(filename)
 
-                                out_path = self.dirs["md"] / filename.replace(
-                                    ".htm", ".md"
-                                )
-                                out_path.parent.mkdir(parents=True, exist_ok=True)
-                                with open(out_path, "w", encoding="utf-8") as f:
-                                    f.write(header + md_text)
+                return success
 
-                                processed_files.add(filename)
-                        except Exception as e:
-                            print(f"    ! Error converting {filename}: {e}")
+        action = ConvertAction(self.dirs["html"], self.dirs["md"], processed_files)
+        process_toc_nodes(toc, action)
 
-                if "children" in node:
-                    process_nodes_recursively(node["children"])
-
-        process_nodes_recursively(toc)
         print(f"[+] Converted {len(processed_files)} files to {self.dirs['md']}")
+
+
+def convert_html_to_markdown(filename, html_path, out_path, node):
+    """Parses HTML, removes junk bars, and converts to markdown."""
+    try:
+        with open(html_path, "r", encoding="utf-8", errors="ignore") as f:
+            soup = BeautifulSoup(f.read(), "html.parser")
+
+        main = soup.find("div", {"class": "document"}) or soup.find("body")
+        if main:
+            for junk in main.find_all(
+                ["div", "nav"],
+                {"class": ["sphinxsidebar", "related", "footer"]},
+            ):
+                junk.decompose()
+
+            md_text = md(str(main), heading_style="ATX", code_language="php")
+
+            header = f"# {node.get('text', 'Untitled')}\n\n"
+            if node.get("description"):
+                header += f"> **AI Summary:** {node['description']}\n\n"
+
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(header + md_text)
+
+            return True
+    except Exception as e:
+        print(f"    ! Error converting {filename}: {e}")
+    return False
 
 
 # --- MAIN EXECUTION ---
