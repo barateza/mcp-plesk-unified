@@ -12,7 +12,6 @@
 # ]
 # ///
 
-import json
 import logging
 
 # ruff: noqa: E402
@@ -78,11 +77,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import lancedb  # type: ignore
 from bs4 import BeautifulSoup
 from fastmcp import FastMCP
-from git import Repo
 from lancedb.embeddings import get_registry  # type: ignore
 from lancedb.pydantic import LanceModel, Vector  # type: ignore
 from pydantic import Field
-from plesk_unified import html_utils, chunking
+from plesk_unified import html_utils, chunking, io_utils
 
 # Detect best device
 # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
@@ -182,57 +180,7 @@ def get_table(create_new: bool = False) -> Any:
         return db.create_table("plesk_knowledge", schema=UnifiedSchema, mode="create")
 
 
-# --- Helper: Git Auto-Loader ---
-def ensure_source_exists(source: Dict[str, Any]) -> bool:
-    """Ensure the source repository exists and is not empty."""
-    if source["path"].exists() and any(source["path"].iterdir()):
-        logger.debug("Source %s already exists at %s", source["cat"], source["path"])
-        return True
-
-    if source["repo_url"]:
-        logger.info("Downloading %s from %s...", source["cat"], source["repo_url"])
-        try:
-            Repo.clone_from(source["repo_url"], source["path"])
-            logger.info("Clone succeeded for %s", source["cat"])
-            return True
-        except Exception:
-            logger.error("Clone failed for %s", source["cat"], exc_info=True)
-            return False
-    return False
-
-
-# --- TOC Parsing Logic ---
-def parse_toc_recursive(
-    nodes: List[Dict[str, Any]],
-    parent_path: str = "",
-    file_map: Optional[Dict[str, Dict[str, str]]] = None,
-) -> Dict[str, Dict[str, str]]:
-    """Recursively parse TOC nodes to build a file map."""
-    if file_map is None:
-        file_map = {}
-    for node in nodes:
-        title = node.get("text", "Untitled")
-        url_raw = node.get("url", "")
-        current_path = f"{parent_path} > {title}" if parent_path else title
-        filename = url_raw.split("#")[0]
-        if filename and filename not in file_map:
-            file_map[filename] = {"title": title, "breadcrumb": current_path}
-        if "children" in node:
-            parse_toc_recursive(node["children"], current_path, file_map)
-    return file_map
-
-
-def load_toc_map(folder_path: Path) -> Dict[str, Dict[str, str]]:
-    """Load and parse a TOC map from a folder's toc.json file."""
-    toc_path = folder_path / "toc.json"
-    if not toc_path.exists():
-        return {}
-    try:
-        data = json.loads(toc_path.read_text(encoding="utf-8"))
-        return parse_toc_recursive(data)
-    except Exception:
-        logger.warning("Failed to parse TOC at %s", toc_path, exc_info=True)
-        return {}
+# --- Source Handling are now in plesk_unified.io_utils ---
 
 
 # --- Content Parsers ---
@@ -314,8 +262,83 @@ def chunk_by_chars(text: str, chunk_size: int, overlap: int = 0) -> List[str]:
 
 
 # --- Tools ---
+def get_file_parser_and_toc(source):
+    """Returns the correct parser and load TOC map for the given source type."""
+    if source["type"] == "html":
+        return html_utils.parse_html_file, io_utils.load_toc_map(source["path"])
+    return parse_code, {}
+
+
+def build_and_chunk_docs(source, file_path, title, breadcrumb, text):
+    """Chunks text and builds document records."""
+    if not text or len(text) <= 10:
+        return []
+
+    if source["type"] == "html":
+        chunks = chunking.chunk_by_chars(text, 1500, 200)
+    elif source["type"] == "php":
+        chunks = chunking.chunk_by_lines(text, 150, 20)
+    else:
+        chunks = chunking.chunk_by_lines(text, 60, 10)
+
+    if not chunks:
+        return []
+
+    records = chunking.build_doc_records(
+        file_path.name,
+        chunks,
+        {"title": title, "category": source["cat"], "breadcrumb": breadcrumb},
+    )
+
+    for r in records:
+        r["text"] = f"[{source['cat'].upper()}] {title}\n---\n{r['text']}"
+
+    return records
+
+
+def process_source_files(source, table, existing_files):
+    """Processes all files for a given source and indexes them."""
+    parser, toc_map = get_file_parser_and_toc(source)
+    files = io_utils.collect_files_for_source(source)
+    logger.info("Found %d files for source %s", len(files), source["cat"])
+
+    cat_docs = []
+    files_processed_count = 0
+    BATCH_SIZE_FILES = 50
+
+    for f in files:
+        if f.name.startswith("_") or f.name == "toc.json" or f.name in existing_files:
+            continue
+
+        meta = toc_map.get(f.name) if toc_map else None
+
+        if source["type"] == "html":
+            title, breadcrumb, text = parser(f, meta)
+        else:
+            title, breadcrumb, text = parser(f)
+
+        records = build_and_chunk_docs(source, f, title, breadcrumb, text)
+        cat_docs.extend(records)
+
+        files_processed_count += 1
+        if files_processed_count >= BATCH_SIZE_FILES:
+            if cat_docs:
+                logger.info(
+                    "Saving batch of %d chunks for %s...", len(cat_docs), source["cat"]
+                )
+                chunking.persist_batch(table, cat_docs)
+                cat_docs = []
+            files_processed_count = 0
+
+    if cat_docs:
+        logger.info(
+            "Saving final batch of %d chunks for %s...", len(cat_docs), source["cat"]
+        )
+        chunking.persist_batch(table, cat_docs)
+
+
 @mcp.tool
-def refresh_knowledge(  # noqa: C901
+def refresh_knowledge(
     target_category: str = Field(
         "all",
         description=(
@@ -347,17 +370,13 @@ def refresh_knowledge(  # noqa: C901
         existing_files = set()
         if target_category != "all":
             try:
-                logger.info(
-                    "Checking existing files for category '%s'...", target_category
-                )
                 results = (
                     table.search()
                     .where(f"category='{target_category}'")
                     .limit(10000)
                     .to_list()
                 )
-                for r in results:
-                    existing_files.add(r["filename"])
+                existing_files.update(r["filename"] for r in results)
                 logger.info(
                     "Found %d existing files/chunks in DB.", len(existing_files)
                 )
@@ -371,100 +390,16 @@ def refresh_knowledge(  # noqa: C901
             continue
 
         logger.info("Processing source: %s", source["cat"])
-        if not ensure_source_exists(source):
+        if not io_utils.ensure_source_exists(source):
             msg = f"SKIPPED {source['cat']} (Source check failed)"
             logger.error(msg)
             report.append(msg)
             continue
 
-        toc_map = {}
-        if source["type"] == "html":
-            toc_map = load_toc_map(source["path"])
-            files = list(source["path"].rglob("*.htm")) + list(
-                source["path"].rglob("*.html")
-            )
-            parser: Any = html_utils.parse_html_file
-        elif source["type"] == "php":
-            files = list(source["path"].rglob("*.php"))
-            parser: Any = parse_code
-        else:
-            files = list(source["path"].rglob("*.js")) + list(
-                source["path"].rglob("*.md")
-            )
-            parser: Any = parse_code
-
-        logger.info("Found %d files for source %s", len(files), source["cat"])
-
-        cat_docs = []
-        files_processed_count = 0
-        BATCH_SIZE_FILES = 50
-
-        for f in files:
-            if f.name.startswith("_") or f.name == "toc.json":
-                continue
-
-            if f.name in existing_files:
-                continue
-
-            meta = toc_map.get(f.name) if toc_map else None
-            if source["type"] == "html":
-                title, breadcrumb, text = parser(f, meta)
-            else:
-                title, breadcrumb, text = parser(f)
-
-            chunks = []
-            if text and len(text) > 10:
-                if source["type"] == "html":
-                    # Documentation: 1500 chars, 200 overlap
-                    chunks = chunking.chunk_by_chars(text, 1500, 200)
-                elif source["type"] == "php":
-                    # PHP Stubs: 150 lines, 20 overlap
-                    chunks = chunking.chunk_by_lines(text, 150, 20)
-                else:
-                    # JS SDK: 60 lines, 10 overlap
-                    chunks = chunking.chunk_by_lines(text, 60, 10)
-
-            if chunks:
-                records = chunking.build_doc_records(
-                    f.name,
-                    chunks,
-                    {
-                        "title": title,
-                        "category": source["cat"],
-                        "breadcrumb": breadcrumb,
-                    },
-                )
-                # Preserve legacy text prefix used previously
-                for r in records:
-                    r["text"] = f"[{source['cat'].upper()}] {title}\n---\n{r['text']}"
-                cat_docs.extend(records)
-
-            files_processed_count += 1
-
-            if files_processed_count >= BATCH_SIZE_FILES:
-                if cat_docs:
-                    logger.info(
-                        "Saving batch of %d chunks for %s...",
-                        len(cat_docs),
-                        source["cat"],
-                    )
-                    try:
-                        chunking.persist_batch(table, cat_docs)
-                        cat_docs = []
-                    except Exception:
-                        logger.exception("Failed to add batch to LanceDB")
-                files_processed_count = 0
-
-        if cat_docs:
-            logger.info(
-                "Saving final batch of %d chunks for %s...",
-                len(cat_docs),
-                source["cat"],
-            )
-            try:
-                chunking.persist_batch(table, cat_docs)
-            except Exception:
-                logger.exception("Failed to add final batch to LanceDB")
+        try:
+            process_source_files(source, table, existing_files)
+        except Exception:
+            logger.exception("Error processing source %s", source["cat"])
 
         msg = f"Finished pass for {source['cat']}."
         logger.info(msg)
