@@ -3,58 +3,24 @@ import os
 import time
 from pathlib import Path
 
-import requests
+from plesk_unified.ai_client import AIClient
 
 # --- Configuration ---
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 KB_ROOT = Path(os.environ.get("KB_ROOT", Path(__file__).parent / "knowledge_base"))
-MODELS = [
-    "arcee-ai/trinity-large-preview:free",
-    "stepfun/step-3-5-flash:free",
-    "liquid/lfm-2.5-1.2b-thinking:free",
-]
+
+client = AIClient(OPENROUTER_API_KEY)
 
 
 def get_ai_description(file_path, file_name):
-    """Attempts to get a description using a tiered fallback system."""
+    """Attempts to get a description using a tiered fallback system via AIClient."""
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read(2500)
     except Exception:
         return "File unreadable."
 
-    for model in MODELS:
-        try:
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(
-                    {
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": (
-                                    "Summarize the technical purpose of the Plesk file "
-                                    f"'{file_name}' "
-                                    "in exactly one concise sentence.\n\n"
-                                    f"{content}"
-                                ),
-                            }
-                        ],
-                        "max_tokens": 100,
-                    }
-                ),
-                timeout=15,
-            )
-            if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"].strip()
-        except Exception:
-            continue
-    return "Description unavailable."
+    return client.generate_description(content)
 
 
 def enrich_all_tocs():
