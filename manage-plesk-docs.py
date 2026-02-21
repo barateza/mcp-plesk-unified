@@ -38,7 +38,7 @@ GUIDES = {
 
 
 def clean_llm_response(text):
-    """Removes conversational filler from LLM output to leave just the technical summary."""
+    """Trim conversational filler from LLM output and return a concise summary."""
     text = text.strip().strip('"').strip("'")
 
     # Common conversational prefixes to strip
@@ -85,21 +85,24 @@ def generate_description(filename, section_title, content_snippet):
 
     # Strict prompt to force directness
     prompt = (
-        f"You are a technical indexer. \n"
+        "You are a technical indexer.\n"
         f"Context: The file '{filename}' contains documentation for Plesk Extensions.\n"
-        f"Task: Write exactly one concise sentence summarizing the specific section titled '{section_title}'.\n"
-        f"Rules:\n"
-        f"1. Start directly with a verb (e.g., 'Explains', 'Defines', 'Configures').\n"
-        f"2. Do NOT say 'Here is a summary'.\n"
-        f"3. Do NOT mention the filename.\n"
-        f"4. Focus ONLY on '{section_title}'.\n\n"
-        f"Content Snippet:\n{content_snippet[:3500]}"
+        "Task: Write exactly one concise sentence summarizing the specific section "
+        f"titled '{section_title}'.\n"
+        "Rules:\n"
+        "1. Start directly with a verb (e.g., 'Explains', 'Defines', 'Configures').\n"
+        "2. Do NOT say 'Here is a summary'.\n"
+        "3. Do NOT mention the filename.\n"
+        "4. Focus ONLY on the section.\n\n"
+        "Content Snippet:\n" + content_snippet[:3500]
     )
 
     messages = [
         {
             "role": "system",
-            "content": "You are a precise technical documenter. Output only the summary.",
+            "content": (
+                "You are a precise technical documenter. Output only the summary."
+            ),
         },
         {"role": "user", "content": prompt},
     ]
@@ -249,7 +252,7 @@ class GuideManager:
 
         return True
 
-    def enrich_toc(self):
+    def enrich_toc(self):  # noqa: C901
         if not self.paths["toc"].exists():
             print(f"[!] No toc.json found for {self.name}. Skipping enrichment.")
             return
@@ -263,7 +266,8 @@ class GuideManager:
         def process_nodes_recursively(nodes):
             nonlocal updated_count
             for node in nodes:
-                # Check if description is missing OR looks "chatty" (contains "concise sentence")
+                # Check if description is missing OR looks "chatty"
+                # (contains "concise sentence")
                 needs_gen = False
                 desc = node.get("description", "")
 
@@ -317,7 +321,7 @@ class GuideManager:
         else:
             print("[-] No new descriptions needed.")
 
-    def convert_to_markdown(self):
+    def convert_to_markdown(self):  # noqa: C901
         if not self.paths["toc"].exists():
             return
 

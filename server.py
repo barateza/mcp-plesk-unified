@@ -22,7 +22,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # --- LOGGING SETUP ---
-# Must be done before importing heavy libraries to capture their init warnings if needed.
+# Must be done before importing heavy libraries.
+# This ensures we capture their initialization warnings if needed.
 BASE_DIR = Path(__file__).parent
 LOG_DIR = BASE_DIR / "storage" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -313,14 +314,20 @@ def chunk_by_chars(text: str, chunk_size: int, overlap: int = 0) -> List[str]:
 
 # --- Tools ---
 @mcp.tool
-def refresh_knowledge(
+def refresh_knowledge(  # noqa: C901
     target_category: str = Field(
         "all",
-        description="Category to index. Choose one: 'guide', 'cli', 'api', 'php-stubs', 'js-sdk' or 'all'.",
+        description=(
+            "Category to index. Choose one: 'guide', 'cli', 'api', 'php-stubs', "
+            "'js-sdk' or 'all'."
+        ),
     ),
     reset_db: bool = Field(
         False,
-        description="Set to True ONLY for the first run to wipe the database. Default is False (resume).",
+        description=(
+            "Set to True ONLY for the first run to wipe the database. "
+            "Default is False (resume)."
+        ),
     ),
 ):
     """
