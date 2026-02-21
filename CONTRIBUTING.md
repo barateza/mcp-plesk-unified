@@ -142,3 +142,19 @@ Contributors will be recognized in:
 - README contributors section (if implemented)
 
 Thank you for helping make Plesk Unified better! 🙏
+
+## Pre-commit Hooks (Formatting & Linting)
+
+We use `pre-commit` to run formatters and linters automatically on each commit.
+
+Install and enable hooks locally:
+
+```bash
+python -m pip install --upgrade pre-commit
+pre-commit install
+pre-commit run --all-files  # optional: verify everything passes
+```
+
+The hooks include `ruff` (lint + auto-fix), `isort` (import sorting), and
+`black` (code formatting). If a hook modifies files, re-run `git add` and
+commit again.
