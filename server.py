@@ -73,10 +73,10 @@ os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
 from fastmcp import FastMCP
 from bs4 import BeautifulSoup
-import lancedb
+import lancedb  # type: ignore
 from git import Repo
-from lancedb.pydantic import LanceModel
-from lancedb.embeddings import get_registry
+from lancedb.pydantic import LanceModel, Vector  # type: ignore
+from lancedb.embeddings import get_registry  # type: ignore
 from pydantic import Field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -149,21 +149,10 @@ except Exception:
         raise
 
 
-
-# Prepare vector field
-_vector_field = embedding_model.VectorField()
-try:
-    extra = getattr(_vector_field, "json_schema_extra", None)
-    if extra is None:
-        _vector_field.json_schema_extra = {"dim": 1024}
-    else:
-        extra["dim"] = 1024
-except Exception:
-    pass
-
-
 class UnifiedSchema(LanceModel):
-    vector: List[float] = _vector_field
+    # Use LanceDB's Vector type to ensure a FixedSizeList Arrow column is created.
+    # BAAI/bge-m3 uses 1024-dimensional embeddings.
+    vector: Vector(1024) = embedding_model.VectorField()  # type: ignore
     text: str = embedding_model.SourceField()
     title: str
     filename: str
