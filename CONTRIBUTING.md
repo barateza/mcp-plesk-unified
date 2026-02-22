@@ -1,14 +1,17 @@
 # Contributing to Plesk Unified
 
-Thank you for your interest in contributing to Plesk Unified! We welcome contributions from the community. This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Plesk Unified! We welcome
+contributions from the community. This document provides guidelines and
+instructions for contributing.
 
-## Code of Conduct
+## Code of conduct
 
-Be respectful and constructive in all interactions. We're committed to providing a welcoming and harassment-free environment for everyone.
+Be respectful and constructive in all interactions. We maintain a welcoming and
+harassment-free environment for everyone.
 
-## Getting Started
+## Getting started
 
-1. **Fork the repository** on GitHub
+1. **Fork the repository** on GitHub.
 2. **Clone your fork** locally:
 
    ```bash
@@ -29,7 +32,7 @@ Be respectful and constructive in all interactions. We're committed to providing
    pip install -e .
    ```
 
-## Making Changes
+## Make changes
 
 1. **Create a feature branch**:
 
@@ -37,7 +40,7 @@ Be respectful and constructive in all interactions. We're committed to providing
    git checkout -b feature/your-feature-name
    ```
 
-2. **Make your changes** following the style guide below
+2. **Make your changes** according to the style guide below.
 
 3. **Test your changes**:
 
@@ -59,12 +62,12 @@ Be respectful and constructive in all interactions. We're committed to providing
    - `test:` for test additions
    - `chore:` for maintenance tasks
 
-## Style Guide
+## Style guide
 
-### Python Code
+### Python code
 
-- Follow [PEP 8](https://pep8.org/) style guidelines
-- Use meaningful variable and function names
+- Follow [PEP 8](https://pep8.org/) style guidelines.
+- Use meaningful variable and function names.
 - Add docstrings to functions and classes:
 
   ```python
@@ -81,17 +84,17 @@ Be respectful and constructive in all interactions. We're committed to providing
       """
   ```
 
-- Keep lines under 100 characters when reasonable
-- Use type hints for function arguments and return values
+- Keep lines under 100 characters when reasonable.
+- Use type hints for function arguments and return values.
 
-### Comments and Documentation
+### Comments and documentation
 
-- Write clear, concise comments explaining the "why" not the "what"
-- Keep README.md updated with new features
-- Document any configuration changes
-- Add examples for new functionality
+- Write clear, concise comments detailing the "why" instead of the "what".
+- Update `README.md` with new features.
+- Document configuration changes.
+- Add examples for new functionality.
 
-## Submitting Changes
+## Submit changes
 
 1. **Push to your fork**:
 
@@ -100,64 +103,64 @@ Be respectful and constructive in all interactions. We're committed to providing
    ```
 
 2. **Create a Pull Request** on GitHub with:
-   - Clear title describing the changes
-   - Description of what changed and why
-   - Reference to any related issues (e.g., "Fixes #123")
-   - Screenshots or examples if applicable
+   - A clear title describing the changes.
+   - A description of what changed and why.
+   - A reference to any related issues (e.g., "Fixes #123").
+   - Screenshots or examples if applicable.
 
-3. **Respond to review comments** promptly and professionally
+3. **Respond to review comments** promptly and professionally.
 
-## Pull Request Checklist
+## Pull request checklist
 
 Before submitting a PR, ensure:
 
-- [ ] Code follows the style guide
-- [ ] Changes are well-documented
-- [ ] No unnecessary dependencies added
-- [ ] Vector database regenerated if content parsing changed
-- [ ] No merge conflicts with main branch
-- [ ] Commit messages are clear and conventional
+- [ ] Code follows the style guide.
+- [ ] Changes include proper documentation.
+- [ ] You add no unnecessary dependencies.
+- [ ] You regenerate the vector database if content parsing changed.
+- [ ] You resolve merge conflicts with the main branch.
+- [ ] Commit messages are clear and conventional.
 
-## Reporting Issues
+## Report issues
 
-### Bug Reports
-
-Include:
-
-- Clear, descriptive title
-- Steps to reproduce
-- Expected behavior
-- Actual behavior
-- Python version and OS
-- Full error messages/traceback
-- Relevant code snippets
-
-### Feature Requests
+### Bug reports
 
 Include:
 
-- Clear description of the feature
-- Use cases and benefits
-- Possible implementation approach (if you have ideas)
-- Examples of similar features in other projects
+- A clear, descriptive title.
+- Steps to reproduce.
+- Expected behavior.
+- Actual behavior.
+- Python version and OS.
+- Full error messages and traceback.
+- Relevant code snippets.
+
+### Feature requests
+
+Include:
+
+- A clear description of the feature.
+- Use cases and benefits.
+- A possible implementation approach.
+- Examples of similar features in other projects.
 
 ## Questions?
 
-- Check existing [GitHub Issues](https://github.com/barateza/mcp-plesk-unified/issues)
-- Open a new Discussion or Issue
-- Be patient - maintainers are volunteers
+- Check existing [GitHub Issues](https://github.com/barateza/mcp-plesk-unified/issues).
+- Open a new Discussion or Issue.
+- Be patient—maintainers are volunteers.
 
 ## Recognition
 
-Contributors will be recognized in:
+We recognize contributors in:
 
-- Git commit history
-- Release notes for significant contributions
-- README contributors section (if implemented)
+- Git commit history.
+- Release notes for significant contributions.
+- README contributors section (if implemented).
 
 Thank you for helping make Plesk Unified better! 🙏
 
-## Pre-commit Hooks (Formatting & Linting)
+## Pre-commit hooks (Formatting & Linting)
 
 We use `pre-commit` to run formatters and linters automatically on each commit.
 
@@ -172,3 +175,4 @@ pre-commit run --all-files  # optional: verify everything passes
 The hooks include `ruff` (lint + auto-fix), `isort` (import sorting), and
 `black` (code formatting). If a hook modifies files, re-run `git add` and
 commit again.
+

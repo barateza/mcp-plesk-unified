@@ -5,30 +5,42 @@
 [![Model Context Protocol](https://img.shields.io/badge/MCP-Compatible-green?style=flat-square)](https://modelcontextprotocol.io/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-A powerful Model Context Protocol (MCP) server that provides unified access to comprehensive Plesk documentation through intelligent semantic search and retrieval-augmented generation (RAG).
+A powerful Model Context Protocol (MCP) server that provides unified access to
+comprehensive Plesk documentation through intelligent semantic search and
+retrieval-augmented generation (RAG).
 
 ## Overview
 
-Plesk Unified seamlessly integrates Plesk's scattered documentation resources into a single, intelligent knowledge base. Using advanced embeddings and reranking, it enables natural language queries to surface the most relevant documentation, making it perfect for developers, system administrators, and AI-powered tools like Claude.
+Plesk Unified seamlessly integrates Plesk's scattered documentation resources
+into a single, intelligent knowledge base. Using advanced embeddings and
+reranking, it enables natural language queries to surface the most relevant
+documentation, making it perfect for developers, system administrators, and
+AI-powered tools like Claude.
 
 ## ✨ Features
 
-- **Unified Knowledge Base**: Aggregates documentation from multiple Plesk sources:
-  - 📚 API Documentation
-  - 💻 CLI Reference  
-  - 📖 Admin Guide
-  - 🔧 PHP API Stubs
+- **Unified knowledge base**: Aggregates documentation from multiple Plesk
+  sources:
+  - 📚 API documentation
+  - 💻 CLI reference
+  - 📖 Admin guide
+  - 🔧 PHP API stubs
   - 🚀 JavaScript SDK
 
-- **🧠 Semantic Search**: Uses BAAI/bge-m3 multilingual embeddings to understand queries semantically beyond simple keyword matching
+- **🧠 Semantic search**: Uses BAAI/bge-m3 multilingual embeddings to
+  understand queries semantically beyond simple keyword matching.
 
-- **🎯 Intelligent Reranking**: Cross-encoder reranking ensures the most relevant results are surfaced first, improving accuracy
+- **🎯 Intelligent reranking**: Cross-encoder reranking ensures the most
+  relevant results surface first to improve accuracy.
 
-- **⚡ Vector Database**: Leverages LanceDB for efficient, scalable vector storage and retrieval with Apache Arrow
+- **⚡ Vector database**: Leverages LanceDB for efficient, scalable vector
+  storage and retrieval with Apache Arrow.
 
-- **🔄 Auto-Git Integration**: Automatically downloads and indexes PHP stubs and JS SDK from GitHub repositories
+- **🔄 Auto-Git integration**: Automatically downloads and indexes PHP stubs
+  and JS SDK from GitHub repositories.
 
-- **🔌 MCP Compatible**: Works seamlessly with Claude, LLaMA, and other MCP-compatible AI tools for context-aware assistance
+- **🔌 MCP compatible**: Works seamlessly with Claude, LLaMA, and other
+  MCP-compatible AI tools for context-aware assistance.
 
 ## 📋 Requirements
 
@@ -37,7 +49,7 @@ Plesk Unified seamlessly integrates Plesk's scattered documentation resources in
 - ~1GB for ML models (auto-downloaded on first run)
 - Internet connection for initial setup
 
-## 🚀 Quick Start
+## 🚀 Quick start
 
 ### Installation
 
@@ -57,20 +69,21 @@ uv pip install -e .
 pip install -e .
 ```
 
-### GPU Acceleration (Optional)
+### GPU acceleration (optional)
 
 The server automatically detects and uses GPU acceleration when available:
 
-| Platform | GPU Type | Acceleration |
+| Platform | GPU type | Acceleration |
 | -------- | -------- | ------------ |
 | macOS M1/M2/M3 | Apple Silicon MPS | ✅ Automatic |
 | Windows + NVIDIA | CUDA | ✅ Automatic |
 | Linux + NVIDIA | CUDA | ✅ Automatic |
 | Other | CPU | ✅ Fallback |
 
-#### Installing with GPU Support
+#### Install with GPU support
 
-The default `sentence-transformers` includes CPU-only PyTorch. For GPU acceleration, install PyTorch with CUDA from the official source:
+The default `sentence-transformers` includes CPU-only PyTorch. For GPU
+acceleration, install PyTorch with CUDA from the official source:
 
 **macOS (Apple Silicon):**
 
@@ -91,11 +104,12 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 ```
 
-> **Important:** If you already have a CUDA-enabled PyTorch installed, it will not be uninstalled. The server will automatically detect and use your GPU.
+> **Important:** If you already have a CUDA-enabled PyTorch installed, it will
+> not be uninstalled. The server automatically detects and uses your GPU.
 
-#### Forcing a Specific Device
+#### Force a specific device
 
-You can override automatic detection by setting the `FORCE_DEVICE` environment variable:
+Override automatic detection by setting the `FORCE_DEVICE` environment variable:
 
 ```bash
 # Force CPU even if GPU is available
@@ -106,18 +120,22 @@ set FORCE_DEVICE=cpu     # Windows
 FORCE_DEVICE=cpu python server.py
 ```
 
-### ⚠️ First-Run Warm-Up (Required)
+### ⚠️ First-run warm-up (required)
 
 > **Do this before registering the server with any MCP client.**
 
-MCP clients (Claude Desktop, Cursor, etc.) enforce strict request timeouts (~60 seconds). On first use, the server must download two AI models totalling ~1.8 GB:
+MCP clients (Claude Desktop, Cursor, etc.) enforce strict request timeouts
+(~60 seconds). On first use, the server must download two AI models totalling
+~1.8 GB:
 
 | Model | Size | Purpose |
 | ----- | ---- | ------- |
 | `BAAI/bge-m3` | ~1.5 GB | Semantic embeddings |
 | `BAAI/bge-reranker-base` | ~300 MB | Cross-encoder reranking |
 
-If the server is registered before the models are cached, the first tool call will trigger the download mid-request and **will time out silently**. Run the warm-up script first:
+If you register the server before the models are cached, the first tool call
+triggers the download mid-request and **times out silently**. Run the warm-up
+script first:
 
 ```bash
 python main.py
@@ -125,7 +143,7 @@ python main.py
 
 Sample output:
 
-``` text
+```text
   mcp-plesk-unified — Model Warm-Up
 
 Downloading and caching AI models...
@@ -137,9 +155,10 @@ Models are now cached. You can safely register the MCP server
 in your client configuration without risk of timeout errors.
 ```
 
-Once the warm-up completes, all subsequent server starts load from the local HuggingFace cache and are nearly instantaneous.
+Once the warm-up completes, all subsequent server starts load from the local
+HuggingFace cache and are nearly instantaneous.
 
-### Initialize the Knowledge Base
+### Initialize the knowledge base
 
 ```bash
 python server.py
@@ -153,7 +172,7 @@ The server will:
 4. ✅ Index everything into LanceDB vector database
 5. ✅ Start the MCP server
 
-### Using with Claude/MCP
+### Use with Claude/MCP
 
 Configure your Claude client to use this MCP server:
 
@@ -168,7 +187,8 @@ Configure your Claude client to use this MCP server:
 }
 ```
 
-Then query: "How do I add a button to the Plesk admin panel?" and receive contextual documentation excerpts.
+Query: "How do I add a button to the Plesk admin panel?" and receive
+contextual documentation excerpts.
 
 ## 🏗️ Architecture
 
@@ -180,7 +200,7 @@ Then query: "How do I add a button to the Plesk admin panel?" and receive contex
 | **Server** | FastMCP | Model Context Protocol implementation |
 | **Parser** | BeautifulSoup4 | HTML parsing for documentation |
 
-## � Dependencies
+## 📦 Dependencies
 
 - **fastmcp** (≥2.14.5): MCP server framework
 - **lancedb** (≥0.29.1): Vector database
@@ -188,7 +208,7 @@ Then query: "How do I add a button to the Plesk admin panel?" and receive contex
 - **beautifulsoup4** (≥4.14.3): HTML parsing
 - **gitpython** (≥3.1.46): Git repository management
 
-## � Usage Examples
+## 💡 Usage examples
 
 ### Python API
 
@@ -204,7 +224,7 @@ for result in results:
     print(f"Content: {result['text'][:200]}...")
 ```
 
-### Command Line
+### Command line
 
 ```bash
 # Initialize and start server
@@ -216,9 +236,11 @@ python server.py
 
 ## 🔧 Configuration
 
-### TOC Enrichment (`enrich_toc.py`)
+### TOC enrichment (`enrich_toc.py`)
 
-`enrich_toc.py` uses the [OpenRouter](https://openrouter.ai/) API to auto-generate one-sentence descriptions for every file in the knowledge-base Table of Contents. Before running it, export your API key:
+`enrich_toc.py` uses the [OpenRouter](https://openrouter.ai/) API to
+auto-generate one-sentence descriptions for every file in the knowledge-base
+Table of Contents. Before running it, export your API key:
 
 ```bash
 # macOS / Linux
@@ -237,13 +259,14 @@ Optionally, override the knowledge-base root (defaults to `./knowledge_base`):
 export KB_ROOT="/path/to/your/knowledge_base"
 ```
 
-Then run:
+Run:
 
 ```bash
 python enrich_toc.py
 ```
 
-> **Tip:** Add `OPENROUTER_API_KEY` to a `.env` file and load it with `dotenv` or your shell's `source` command — never hard-code it in source files.
+> **Tip:** Add `OPENROUTER_API_KEY` to a `.env` file and load it with `dotenv`
+> or your shell's `source` command — never hard-code it in source files.
 
 ### Server (`server.py`)
 
@@ -266,7 +289,7 @@ embedding_model = get_registry().get("huggingface").create(
 reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 ```
 
-## 🗂️ Project Structure
+## 🗂️ Project structure
 
 ```text
 plesk-unified/
@@ -287,13 +310,19 @@ plesk-unified/
 
 ## Naming conventions
 
-This repository follows a simple naming policy for user-facing files and documentation:
+This repository follows a naming policy for user-facing files and documentation:
 
-- Use kebab-case for documentation filenames and public assets (e.g., `getting-started.md`, `extension-sdk-features.md`).
-- Keep code/module names in their language-native form (Python: snake_case, JS: camelCase or as-is). Do not rename Python modules or package directories to kebab-case.
-- Excluded paths (do not rename): `storage/lancedb`, `knowledge_base/stubs`, and `plesk_unified.egg-info`.
+- Use kebab-case for documentation filenames and public assets (e.g.,
+  `getting-started.md`, `extension-sdk-features.md`).
+- Keep code/module names in their language-native form (Python: snake_case,
+  JS: camelCase or as-is). Do not rename Python modules or package directories
+  to kebab-case.
+- Excluded paths (do not rename): `storage/lancedb`, `knowledge_base/stubs`,
+  and `plesk_unified.egg-info`.
 
-When renaming files, update any internal links (TOC, README, and other markdown files) to point to the new kebab-case names. Run formatters and linters after applying changes:
+When renaming files, update any internal links (TOC, README, and other
+markdown files) to point to the new kebab-case names. Run formatters and
+linters after applying changes:
 
 ```bash
 # Fix Python formatting and linting
@@ -303,7 +332,7 @@ black .
 
 ## 🚧 Development
 
-### Setting Up Development Environment
+### Set up development environment
 
 ```bash
 # Install with dev dependencies (if added)
@@ -319,7 +348,7 @@ black .
 pylint **/*.py
 ```
 
-### Regenerating the Vector Database
+### Regenerate the vector database
 
 ```bash
 # Delete the old database
@@ -331,11 +360,12 @@ python server.py
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the
+[LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please consider:
+Contributions are welcome! Consider the following workflow:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -354,11 +384,12 @@ Contributions are welcome! Please consider:
 
 ### Models not downloading
 
-Ensure you have internet connectivity and sufficient disk space (~2GB for models).
+Ensure you have internet connectivity and sufficient disk space (~2GB for
+models).
 
 ### LanceDB connection issues
 
-Try deleting the storage directory and reinitializing:
+Delete the storage directory and reinitialize:
 
 ```bash
 rm -rf storage/
@@ -371,9 +402,9 @@ Reduce batch size in `server.py` or run on a machine with more RAM.
 
 ## 📖 Resources
 
-- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
-- [Plesk Official Documentation](https://docs.plesk.com/)
-- [LanceDB Documentation](https://lancedb.com/)
+- [Model Context Protocol documentation](https://modelcontextprotocol.io/)
+- [Plesk official documentation](https://docs.plesk.com/)
+- [LanceDB documentation](https://lancedb.com/)
 - [Sentence Transformers](https://www.sbert.net/)
 
 ## 🙏 Acknowledgments
@@ -394,3 +425,4 @@ For issues or questions:
 ---
 
 ## **Built with ❤️ for the Plesk community**
+
