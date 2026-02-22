@@ -1,4 +1,6 @@
 name: Tests & Linting
+permissions:
+  contents: write
 
 on:
   push:
@@ -36,16 +38,16 @@ jobs:
 
     - name: Lint with ruff
       run: |
-        ruff check server.py main.py
+        ruff check .
 
     - name: Format check with ruff
       run: |
-        ruff format --check server.py main.py
+        ruff format --check .
 
     - name: Import verification
       run: |
-        python -c "from server import mcp; print('✓ Imports successful')"
+        python -c "from plesk_unified.server import mcp; print('✓ Imports successful')"
 
     - name: Server startup test
       run: |
-        timeout 5 python server.py 2>&1 | head -20 || echo "Server initialization completed"
+        timeout 10 python -m plesk_unified.server 2>&1 | head -20 || echo "Server initialization completed"

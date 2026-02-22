@@ -117,7 +117,7 @@ export FORCE_DEVICE=cpu  # Linux/macOS
 set FORCE_DEVICE=cpu     # Windows
 
 # Or run
-FORCE_DEVICE=cpu python server.py
+FORCE_DEVICE=cpu python -m plesk_unified.server
 ```
 
 ### ⚠️ First-run warm-up (required)
@@ -418,7 +418,7 @@ Delete the storage directory and reinitialize:
 
 ```bash
 rm -rf storage/
-python server.py
+python -m plesk_unified.server
 ```
 
 ### Out of memory errors

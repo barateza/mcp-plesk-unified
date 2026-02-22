@@ -45,7 +45,7 @@ harassment-free environment for everyone.
 3. **Test your changes**:
 
    ```bash
-   python server.py  # Verify the server starts correctly
+   python -m plesk_unified.server  # Verify the server starts correctly
    ```
 
 4. **Commit with clear messages**:
