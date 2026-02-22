@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plesk-unified"
-version = "0.4.0"
+version = "0.3.1"
 description = "A unified MCP server that indexes and retrieves Plesk documentation using vector embeddings and semantic search with reranking"
 readme = "README.md"
 license = {text = "MIT"}
