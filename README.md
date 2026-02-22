@@ -226,7 +226,7 @@ contextual documentation excerpts.
 
 ## 📦 Dependencies
 
-- **fastmcp** (≥2.14.5): MCP server framework
+- **fastmcp** (≥3.0.1): MCP server framework
 - **lancedb** (≥0.29.1): Vector database
 - **sentence-transformers** (≥5.2.2): Embedding and reranking models
 - **beautifulsoup4** (≥4.14.3): HTML parsing
