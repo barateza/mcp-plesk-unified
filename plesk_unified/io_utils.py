@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import shutil
+import stat
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from git import Repo
@@ -26,6 +29,19 @@ def ensure_source_exists(source: Dict[str, Any]) -> bool:
         try:
             Repo.clone_from(repo_url, source_path)
             logger.info("Clone succeeded for %s", source.get("cat"))
+
+            def on_rm_error(func, path, exc_info):
+                # path contains the path of the file that couldn't be removed
+                # let's just assume that it's read-only and unlink it.
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+
+            # Cleanup unnecessary artifacts
+            for folder in [".git", ".github", "tests"]:
+                target = source_path / folder
+                if target.exists() and target.is_dir():
+                    shutil.rmtree(target, onerror=on_rm_error)
+
             return True
         except Exception:
             logger.error("Clone failed for %s", source.get("cat"), exc_info=True)

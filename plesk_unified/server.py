@@ -127,6 +127,24 @@ SOURCES = [
         "type": "js",
         "repo_url": "https://github.com/plesk/plesk-ext-sdk.git",
     },
+    {
+        "path": KB_DIR / "api-rpc",
+        "cat": "api",
+        "type": "md",
+        "repo_url": None,
+    },
+    {
+        "path": KB_DIR / "cli-linux",
+        "cat": "cli",
+        "type": "md",
+        "repo_url": None,
+    },
+    {
+        "path": KB_DIR / "extensions-guide",
+        "cat": "guide",
+        "type": "md",
+        "repo_url": None,
+    },
 ]
 
 # --- Database Setup ---

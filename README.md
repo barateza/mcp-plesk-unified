@@ -134,11 +134,10 @@ MCP clients (Claude Desktop, Cursor, etc.) enforce strict request timeouts
 | `BAAI/bge-reranker-base` | ~300 MB | Cross-encoder reranking |
 
 If you register the server before the models are cached, the first tool call
-triggers the download mid-request and **times out silently**. Run the warm-up
-script first:
+Run the built-in entry point to check installation and warm up models:
 
 ```bash
-python main.py
+uv run plesk-unified-mcp --help
 ```
 
 Sample output:
@@ -161,7 +160,7 @@ HuggingFace cache and are nearly instantaneous.
 ### Initialize the knowledge base
 
 ```bash
-python server.py
+uv run plesk-unified-mcp
 ```
 
 The server will:
@@ -172,16 +171,41 @@ The server will:
 4. ✅ Index everything into LanceDB vector database
 5. ✅ Start the MCP server
 
-### Use with Claude/MCP
+### Automatic Configuration (Recommended)
 
-Configure your Claude client to use this MCP server:
+You can use FastMCP's built-in configuration generator to get the correct JSON for your client:
 
+```bash
+uv run fastmcp install mcp-json fastmcp.json
+```
+
+This will output a JSON object that you can copy into your Claude Desktop, Cursor, or VS Code configuration.
+
+### Manual Configuration
+
+If you prefer to configure manually, use these templates:
+
+#### Claude Desktop
+Modify `~/.claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "mcp-plesk-unified": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/mcp-plesk-unified", "plesk-unified-mcp"]
+    }
+  }
+}
+```
+
+#### Cursor
+Add to `~/.cursor/mcp.json` (or use the absolute Python path):
 ```json
 {
   "mcpServers": {
     "mcp-plesk-unified": {
       "command": "python",
-      "args": ["/path/to/mcp-plesk-unified/server.py"]
+      "args": ["-m", "plesk_unified.server"]
     }
   }
 }
@@ -213,7 +237,7 @@ contextual documentation excerpts.
 ### Python API
 
 ```python
-from server import mcp
+from plesk_unified.server import mcp
 
 # Search the knowledge base
 results = mcp.search_plesk_unified(query="API authentication methods")
@@ -227,8 +251,8 @@ for result in results:
 ### Command line
 
 ```bash
-# Initialize and start server
-python server.py
+# Start the server using the entrypoint
+uv run plesk-unified-mcp
 
 # In another terminal, query the server
 # (Instructions for client-side querying)
@@ -236,9 +260,9 @@ python server.py
 
 ## 🔧 Configuration
 
-### TOC enrichment (`enrich_toc.py`)
+### TOC enrichment (`scripts/enrich_toc.py`)
 
-`enrich_toc.py` uses the [OpenRouter](https://openrouter.ai/) API to
+`scripts/enrich_toc.py` uses the [OpenRouter](https://openrouter.ai/) API to
 auto-generate one-sentence descriptions for every file in the knowledge-base
 Table of Contents. Before running it, export your API key:
 
@@ -262,15 +286,15 @@ export KB_ROOT="/path/to/your/knowledge_base"
 Run:
 
 ```bash
-python enrich_toc.py
+python scripts/enrich_toc.py
 ```
 
 > **Tip:** Add `OPENROUTER_API_KEY` to a `.env` file and load it with `dotenv`
 > or your shell's `source` command — never hard-code it in source files.
 
-### Server (`server.py`)
+### Server (`plesk_unified/server.py`)
 
-Edit `server.py` to customize:
+Edit `plesk_unified/server.py` to customize:
 
 ```python
 # Knowledge base sources
@@ -293,19 +317,20 @@ reranker = CrossEncoderReranker(model_name="BAAI/bge-reranker-base")
 
 ```text
 plesk-unified/
-├── server.py              # Main MCP server implementation
-├── main.py               # Warm-up script — run once before registering with MCP clients
-├── pyproject.toml        # Project metadata and dependencies
-├── README.md             # This file
-├── LICENSE               # MIT License
-├── knowledge_base/       # Documentation sources
-│   ├── api/             # API documentation
-│   ├── cli/             # CLI reference
-│   ├── guide/           # Admin guide
-│   ├── php-stubs/       # PHP API stubs
-│   └── sdk/             # JavaScript SDK
-└── storage/             # Generated data
-    └── lancedb/         # Vector database
+├── plesk_unified/       # Core package
+│   ├── server.py        # Main MCP server implementation
+│   ├── platform_utils.py # Platform & GPU detection
+│   ├── ai_client.py     # AI interaction layer
+│   └── ...              # Other utility modules
+├── scripts/             # Administrative & maintenance scripts
+│   ├── enrich_toc.py    # LLM-based description generation
+│   ├── generate_virtual_toc.py
+│   └── manage_plesk_docs.py
+├── pyproject.toml       # Project metadata and dependencies
+├── README.md            # This file
+├── LICENSE              # MIT License
+├── knowledge_base/      # Documentation sources
+└── storage/             # Generated data (logs, database)
 ```
 
 ## Naming conventions
@@ -355,7 +380,7 @@ pylint **/*.py
 rm -rf storage/lancedb
 
 # Reinitialize
-python server.py
+uv run plesk-unified-mcp
 ```
 
 ## 📝 License

@@ -23,8 +23,8 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = "liquid/lfm-2.5-1.2b-thinking:free"
 
 # 2. Storage Paths (Staging Area)
-# Files will be processed here. You can move 'md' folders to 'knowledge_base' later.
-BASE_STORAGE_DIR = Path("storage")
+# Files will be processed here and output to knowledge_base.
+BASE_STORAGE_DIR = Path("knowledge_base")
 
 # 3. Documentation Sources
 GUIDES = {
@@ -306,6 +306,10 @@ class GuideManager:
             json.dump(
                 {"last_modified": remote_mod, "updated": datetime.now().isoformat()}, f
             )
+            
+        # Cleanup zip file
+        if self.paths["zip"].exists():
+            self.paths["zip"].unlink(missing_ok=True)
 
         return True
 

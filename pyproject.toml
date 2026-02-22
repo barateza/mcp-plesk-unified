@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plesk-unified"
-version = "0.2.0"
+version = "0.3.0"
 description = "A unified MCP server that indexes and retrieves Plesk documentation using vector embeddings and semantic search with reranking"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,9 +30,12 @@ dependencies = [
     "fastmcp>=3.0.0",
     "gitpython>=3.1.46",
     "lancedb>=0.29.1",
+    "markdownify>=0.14.1",
+    "pydantic>=2.10.0",
+    "requests>=2.32.0",
     "sentence-transformers>=5.2.2",
-    # Note: torch is already a dependency of sentence-transformers
-    # For GPU support, install separately (see README)
+    "torch>=2.4.0",
+    "transformers>=4.48.0",
 ]
 
 [project.urls]
@@ -42,11 +45,11 @@ Repository = "https://github.com/barateza/mcp-plesk-unified.git"
 "Bug Tracker" = "https://github.com/barateza/mcp-plesk-unified/issues"
 
 [tool.setuptools]
-py-modules = ["server"]
+packages = ["plesk_unified"]
 
 [project.scripts]
-# Console script to run the MCP server: `plesk-unified-mcp` will call `server:main`
-plesk-unified-mcp = "server:main"
+# Console script to run the MCP server
+plesk-unified-mcp = "plesk_unified.server:main"
 
 [tool.black]
 line-length = 88
