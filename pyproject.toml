@@ -27,7 +27,7 @@ classifiers = [
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.14.3",
-    "fastmcp>=3.0.0",
+    "fastmcp>=3.0.1",
     "gitpython>=3.1.46",
     "lancedb>=0.29.1",
     "markdownify>=0.14.1",
