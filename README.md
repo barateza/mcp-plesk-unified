@@ -226,11 +226,35 @@ contextual documentation excerpts.
 
 ## 📦 Dependencies
 
-- **fastmcp** (≥3.0.1): MCP server framework
+- **fastmcp** (≥3.0.2): MCP server framework
 - **lancedb** (≥0.29.1): Vector database
 - **sentence-transformers** (≥5.2.2): Embedding and reranking models
 - **beautifulsoup4** (≥4.14.3): HTML parsing
 - **gitpython** (≥3.1.46): Git repository management
+
+### uv Dependency Management
+
+This project uses `uv` for dependency management. Note that `uv` distinguishes between optional dependencies and dev dependencies:
+
+| Table | `uv` Flag | Published with Package? |
+|-------|-----------|-------------------------|
+| `[project.optional-dependencies]` | `--extra <name>` | ✅ Yes (PEP 621) |
+| `[dependency-groups]` | `--dev` / `--group <name>` | ❌ No (PEP 735) |
+
+**Current Setup:** The project uses `[project.optional-dependencies]` for dev dependencies. Use `uv sync --extra dev` instead of `uv sync --dev`.
+
+**Alternative:** Migrate to `[dependency-groups]` for native `uv --dev` support:
+
+```toml
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.3.0",
+    "black>=24.0.0",
+]
+```
+
+**VIRTUAL_ENV Warning:** The warning about `VIRTUAL_ENV` not matching the project path is harmless and can be ignored.
 
 ## 💡 Usage examples
 
