@@ -1,10 +1,11 @@
 import json
 from unittest.mock import patch
+
 from plesk_unified.io_utils import (
-    ensure_source_exists,
-    parse_toc_recursive,
-    load_toc_map,
     collect_files_for_source,
+    ensure_source_exists,
+    load_toc_map,
+    parse_toc_recursive,
 )
 
 

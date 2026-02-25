@@ -5,6 +5,7 @@ import shutil
 import stat
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from git import Repo
 
 logger = logging.getLogger(__name__)

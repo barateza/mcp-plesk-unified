@@ -115,3 +115,10 @@ line-length = 88
 select = ["E", "F", "W", "C90", "TC", "B", "B9"]
 extend-ignore = ["E203"]
 extend-select = []
+
+[dependency-groups]
+dev = [
+    "black>=26.1.0",
+    "isort>=8.0.0",
+    "ruff>=0.15.2",
+]

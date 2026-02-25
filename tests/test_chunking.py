@@ -1,4 +1,4 @@
-from plesk_unified.chunking import chunk_by_chars, build_doc_records
+from plesk_unified.chunking import build_doc_records, chunk_by_chars
 
 
 def test_chunk_by_chars_empty():

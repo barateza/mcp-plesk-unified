@@ -306,7 +306,7 @@ class GuideManager:
             json.dump(
                 {"last_modified": remote_mod, "updated": datetime.now().isoformat()}, f
             )
-            
+
         # Cleanup zip file
         if self.paths["zip"].exists():
             self.paths["zip"].unlink(missing_ok=True)

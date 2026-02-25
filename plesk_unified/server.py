@@ -80,7 +80,8 @@ from fastmcp import FastMCP
 from lancedb.embeddings import get_registry  # type: ignore
 from lancedb.pydantic import LanceModel, Vector  # type: ignore
 from pydantic import Field
-from plesk_unified import html_utils, chunking, io_utils
+
+from plesk_unified import chunking, html_utils, io_utils
 
 # Detect best device
 # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU

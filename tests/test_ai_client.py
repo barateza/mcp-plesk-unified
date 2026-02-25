@@ -1,7 +1,9 @@
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from plesk_unified.ai_client import AIClient, DEFAULT_MODELS
+
+from plesk_unified.ai_client import DEFAULT_MODELS, AIClient
 
 
 @pytest.fixture

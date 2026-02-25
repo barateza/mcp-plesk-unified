@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import Dict, List
 
 
 def chunk_by_chars(text: str, size: int = 1500, overlap: int = 200) -> List[str]:

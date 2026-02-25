@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from plesk_unified.html_utils import parse_html_file, clean_html_for_markdown
+from plesk_unified.html_utils import clean_html_for_markdown, parse_html_file
 
 
 def test_parse_html_file(tmp_path):
