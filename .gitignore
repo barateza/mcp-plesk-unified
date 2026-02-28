@@ -140,5 +140,10 @@ knowledge_base/
 
 # uv package manager
 .uv/
-
 uv.lock
+
+# AI stuff
+.agents
+.cline
+.gemini
+.specs
